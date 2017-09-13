@@ -1,4 +1,4 @@
-# mep: Marginal Effects Plots for Regression Diagnostics
+# mep: Marginal Effect Plots for Regression Diagnostics
 
 [![CRAN version](http://www.r-pkg.org/badges/version/mep)](http://cran.rstudio.com/web/packages/mep/index.html)
 [![CRAN RStudio mirror downloads](http://cranlogs.r-pkg.org/badges/grand-total/mep)](https://www.rdocumentation.org/packages/mep/)
