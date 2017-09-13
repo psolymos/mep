@@ -1,0 +1,11 @@
+Package: mep
+Type: Package
+Title: Marginal Effects Plots for Regression Diagnostics
+Version: 0.0-1
+Date: 2017-09-12
+Author: Peter Solymos [aut, cre], Subhash R. Lele [aut]
+Maintainer: Peter Solymos <solymos@ualberta.ca>
+Description: Marginal effects plots for regression diagnostics.
+License: GPL-2
+URL: https://github.com/psolymos/mep
+BugReports: https://github.com/psolymos/mep/issues
