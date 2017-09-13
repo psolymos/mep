@@ -1,7 +1,5 @@
 ## functions for exploratory data analysis and model checking
 
-library(ResourceSelection)
-
 .mep <-
 function(x, y, level=0.95, link=NULL,
 type=c("numeric", "unique", "factor"),
