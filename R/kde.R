@@ -79,3 +79,58 @@ lines(c(0, 0), qy[c(2, 4)], col=ColB, lwd=7, lend=2, xpd=TRUE)
 lines(c(0, 0), qy[c(1, 5)], col=ColB, lwd=2, lend=2, xpd=TRUE)
 points(0, qy[3], col=ColB, pch=3, xpd=TRUE, cex=2)
 par(op)
+
+rugden <-
+function (x, ticksize = 0.03, side = 1, lwd = 0.5, col = par("fg"),
+    col.ticks = "white", quiet = getOption("warn") < 0, ...)
+{
+    Pal <- colorRampPalette(c("#FFFFFF", col))(100)
+    dx <- bkde(x)
+    Col <- cut(dx$y, 100, include.lowest=TRUE, labels=FALSE)
+    #plot(dx$x, dx$y, col=Pal[Col])
+    xi <- dx$x
+    st <- 0.5*(xi[2]-xi[1])
+
+    x <- as.vector(x)
+    ok = is.finite(x)
+    x <- x[ok]
+    if (!quiet) {
+        u <- par("usr")
+        if (side%%2 == 1) {
+            if (par("xlog"))
+                u <- 10^u[1:2]
+            else u <- u[1:2]
+        }
+        else {
+            if (par("ylog"))
+                u <- 10^u[3:4]
+            else u <- u[3:4]
+        }
+        if (any(x < u[1] | x > u[2]))
+            warning("Some values will be clipped")
+    }
+    u <- par("usr")
+    par("pin")
+    if (ticksize < 0.5)
+        tic <- min(diff(u[3:4]), diff(u[1:2])) * ticksize
+    else tic <- ifelse(side%%2 == 1, diff(u[3:4]), diff(u[1:2])) *
+        ticksize
+    if (ticksize < 0)
+        opar <- par(xpd = TRUE)
+    switch(as.character(side),
+        `1` = polygon(u[c(1, 2, 2, 1,
+            1)], u[3] + c(0, 0, tic, tic, 0), col = col, border = NA, ...),
+        `2` = polygon(u[1] + c(0, 0, tic, tic, 0), u[c(3,
+            4, 4, 3, 3)], col = col, border = NA, ...),
+        `3` = polygon(u[c(1,
+            2, 2, 1, 1)], u[4] + c(0, 0, -tic, -tic, 0), col = col,
+            border = NA, ...),
+        `4` = polygon(u[2] + c(0, 0, -tic,
+            -tic, 0), u[c(3, 4, 4, 3, 3)], col = col, border = NA, ...))
+    if (ticksize < 0)
+        par(opar)
+    invisible(x)
+}
+
+## add rug related to: 1D density
+## add rug related to: boxplot style
