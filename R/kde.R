@@ -1,6 +1,7 @@
 ## kernel density estimates
 
 library(KernSmooth)
+library(ash)
 
 bw4bkde <-
 function (x, kernel = "normal", canonical = FALSE, bandwidth,
@@ -54,15 +55,15 @@ mat[1,] <- 2
 mat[,S] <- 3
 mat[1,S] <- 4
 layout(mat)
-op <- par(mar=c(6, 5, 0.5, 0.5)+0.1)
+op <- par(mar=c(6, 5, 0, 0)+0.1)
 plot(x, y, axes=FALSE, type="n", xlim=range(dx$x), ylim=range(dy$x))
 image(d2$x1, d2$x2, d2$fhat, col=Pal(100), add=TRUE)
 points(x, y, col=Col5, pch=19)
 contour(d2$x1, d2$x2, cs, add=TRUE, col=ColB, levels=c(0.25, 0.5, 0.75))
-box(col=Col2)
+#box(col=Col2)
 axis(1)
 axis(2)
-par(mar=c(0, 5, 2, 0.5)+0.1)
+par(mar=c(0, 5, 2, 0)+0.1)
 yl <- range(dx$y)
 #yl[1] <- yl[1]-0.1*diff(yl)
 plot(dx$x, dx$y, type="n", axes=FALSE, ann=FALSE, ylim=yl)
@@ -70,7 +71,7 @@ polygon(dx$x, dx$y, col=Col2, border=Col1)
 lines(qx[c(2, 4)], c(0, 0), col=ColB, lwd=7, lend=2, xpd=TRUE)
 lines(qx[c(1, 5)], c(0, 0), col=ColB, lwd=2, lend=2, xpd=TRUE)
 points(qx[3], 0, col=ColB, pch=3, xpd=TRUE, cex=2)
-par(mar=c(6, 0.5, 0.5, 2)+0.1)
+par(mar=c(6, 0, 0, 2)+0.1)
 xl <- range(dx$y)
 #xl[1] <- xl[1]-0.1*diff(xl)
 plot(dy$y, dy$x, type="n", axes=FALSE, ann=FALSE, xlim=xl)
@@ -134,3 +135,124 @@ function (x, ticksize = 0.03, side = 1, lwd = 0.5, col = par("fg"),
 
 ## add rug related to: 1D density
 ## add rug related to: boxplot style
+
+## join the dots
+stairs <- function(x, y=NULL, ...) {
+    if (is.null(y)) {
+        if (is.list(x)) {
+            y <- x[[2L]]
+            x <- x[[1L]]
+        } else {
+            if (!is.null(dim(x))) {
+                y <- x[,2L]
+                x <- x[,1L]
+            } else {
+                stop("y must be specified")
+            }
+        }
+    }
+    n <- length(x)
+    o <- order(x)
+    x <- x[o]
+    y <- y[o]
+    d <- 0.5*diff(x)
+    list(
+        x=rep(c(x[1]-d[1], x[-1]-d, x[n]+d[n-1]), c(1, rep(2, n-1), 1)),
+        y=rep(y, each=2))
+}
+set.seed(1)
+x <- cumsum(runif(10, 0.5, 1))
+y <- runif(10, 0, 1)
+plot(x,y)
+lines(x, y)
+lines(spline(x, y, n = 10 * length(x)), col=2)
+lines(stairs(x, y), col=4)
+
+## boxplot
+
+x <- rnorm(1000)
+qbox <- function(x, type="|I", at=0, w=0.5, tick=0.5, horiz=TRUE, add=FALSE, ...) {
+    q <- quantile(x, seq(0, 1, 0.25))
+    types <- c(
+        " -", "--", "|-",
+        " +", "-+", "|+",
+        " =", "-=", "|=",
+        " I", "-I", "|I")
+    type <- match.arg(type, types)
+    if (nchar(type) < 2)
+        stop("type must be fully specified")
+    a <- substr(type, 1, 1)
+    b <- substr(type, 2, 2)
+    if (!add)
+        plot(NA, xlim=range(q), ylim=at+c(1, -1)*w, axes=FALSE, ann=FALSE)#, ...)
+    if (a == "|") {
+        lines(q[c(1,1)], at+c(tick, -tick)*w)
+        lines(q[c(5,5)], at+c(tick, -tick)*w)
+    }
+    if (a %in% c("-", "|")) {
+        lines(q[c(1,2)], c(at, at))
+        lines(q[c(4,5)], c(at, at))
+    }
+    if (b %in% c("-", "+")) {
+        lines(q[c(2,4)], c(at, at))
+    }
+    if (b  %in% c("=", "I")) {
+        polygon(q[c(2,4,4,2)], at+c(1, 1, -1, -1)*w)
+    }
+    if (b %in% c("+", "I")) {
+        lines(q[c(3,3)], at+c(w, -w))
+    }
+    invisible(NULL)
+}
+
+## d=density, h=hist, s=strip
+dplot <- function(x, type="d", at=0, w=0.5, alpha=0, col=1, border=NA, add=FALSE) {
+    type <- match.arg(type, c("d", "h", "s"))
+    if (!add)
+        plot(NA, xlim=range(x), ylim=at+c(1, -1)*w, axes=FALSE, ann=FALSE)#, ...)
+    if (type == "d") {
+        z <- KernSmooth::bkde(x)
+        r <- z$y / max(z$y)
+    }
+    if (type %in% c("s", "h")) {
+        h <- hist(x, plot=FALSE)
+        z <- stairs(list(x=h$mids, y=h$density))
+        r <- h$density / max(h$density)
+    }
+    if (type == "s") {
+        z$y <- rep(1, length(z$y))
+    } else {
+        z$y <- z$y/max(z$y)
+    }
+    y1 <- at+w*(1-alpha)*z$y
+    y2 <- at-w*(1-alpha)*z$y
+    p <- list(x=c(z$x, rev(z$x)), y=c(y1, rev(y2)))
+    ## need to distinguish full color from gradient, for type=s
+    if (is.function(col)) {
+        Cols <- col(100)
+    } else {
+        if (length(col) > 1L) {
+            Cols <- colorRampPalette(col)(100)
+        } else {
+            Cols <- colorRampPalette(c("#FFFFFF", col))(100)
+        }
+    }
+    i <- Cols[cut(r, 100, include.lowest=TRUE, labels=FALSE)]
+    if (type == "d") {
+        for (j in 2:length(r)) {
+            k1 <- c(j-1, j)
+            k2 <- c(j, j-1)
+            polygon(z$x[c(k1, k2)], c(y1[k1], y2[k2]), border=NA, col=i[j])
+        }
+    } else {
+        for (j in 1:length(r)) {
+            k1 <- c(j*2-1, j*2)
+            k2 <- c(j*2, j*2-1)
+            polygon(z$x[c(k1, k2)], c(y1[k1], y2[k2]), border=NA, col=i[j])
+        }
+    }
+    ## this does not work for density -- check that, can't use stairs
+
+    polygon(p, col=NA, border=border)
+    invisible(NULL)
+}
