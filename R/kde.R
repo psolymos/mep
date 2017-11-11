@@ -171,7 +171,12 @@ lines(stairs(x, y), col=4)
 ## boxplot
 
 x <- rnorm(1000)
-qbox <- function(x, type="|I", at=0, w=0.5, tick=0.5, horiz=TRUE, add=FALSE, ...) {
+
+qbox <-
+function(x, type="|I", at=0, w=0.5, tick=0.5,
+horiz=TRUE, add=FALSE,
+lwd=1, lwd_med=2, col=1, col_med=1, col_box=NA, ...)
+{
     q <- quantile(x, seq(0, 1, 0.25))
     types <- c(
         " -", "--", "|-",
@@ -183,26 +188,61 @@ qbox <- function(x, type="|I", at=0, w=0.5, tick=0.5, horiz=TRUE, add=FALSE, ...
         stop("type must be fully specified")
     a <- substr(type, 1, 1)
     b <- substr(type, 2, 2)
-    if (!add)
-        plot(NA, xlim=range(q), ylim=at+c(1, -1)*w, axes=FALSE, ann=FALSE)#, ...)
+    if (!add) {
+        if (horiz)
+            plot(NA, xlim=range(q), ylim=at+c(1, -1)*w, axes=FALSE, ann=FALSE, ...)
+        if (!horiz)
+            plot(NA, ylim=range(q), xlim=at+c(1, -1)*w, axes=FALSE, ann=FALSE, ...)
+    }
     if (a == "|") {
-        lines(q[c(1,1)], at+c(tick, -tick)*w)
-        lines(q[c(5,5)], at+c(tick, -tick)*w)
+        if (horiz) {
+            lines(q[c(1,1)], at+c(tick, -tick)*w, lend=1, lwd=lwd, col=col)
+            lines(q[c(5,5)], at+c(tick, -tick)*w, lend=1, lwd=lwd, col=col)
+        } else {
+            lines(at+c(tick, -tick)*w, q[c(1,1)], lend=1, lwd=lwd, col=col)
+            lines(at+c(tick, -tick)*w, q[c(5,5)], lend=1, lwd=lwd, col=col)
+        }
     }
     if (a %in% c("-", "|")) {
-        lines(q[c(1,2)], c(at, at))
-        lines(q[c(4,5)], c(at, at))
+        if (horiz) {
+            lines(q[c(1,2)], c(at, at), lend=1, lwd=lwd, col=col)
+            lines(q[c(4,5)], c(at, at), lend=1, lwd=lwd, col=col)
+        } else {
+            lines(c(at, at), q[c(1,2)], lend=1, lwd=lwd, col=col)
+            lines(c(at, at), q[c(4,5)], lend=1, lwd=lwd, col=col)
+        }
     }
     if (b %in% c("-", "+")) {
-        lines(q[c(2,4)], c(at, at))
+        if (horiz) {
+            lines(q[c(2,4)], c(at, at), lend=1, lwd=lwd, col=col)
+        } else {
+            lines(c(at, at), q[c(2,4)], lend=1, lwd=lwd, col=col)
+        }
     }
     if (b  %in% c("=", "I")) {
-        polygon(q[c(2,4,4,2)], at+c(1, 1, -1, -1)*w)
+        if (horiz) {
+            polygon(q[c(2,4,4,2)], at+c(1, 1, -1, -1)*w,
+                lwd=lwd_box, col=col_box, border=col_border)
+        } else {
+            polygon(at+c(1, 1, -1, -1)*w, q[c(2,4,4,2)],
+                lwd=lwd_box, col=col_box, border=col_border)
+        }
     }
     if (b %in% c("+", "I")) {
-        lines(q[c(3,3)], at+c(w, -w))
+        if (horiz) {
+            lines(q[c(3,3)], at+c(w, -w), lend=1, lwd=lwd_med, col=col_med)
+        } else {
+            lines(at+c(w, -w), q[c(3,3)], lend=1, lwd=lwd_med, col=col_med)
+        }
     }
-    invisible(NULL)
+    out <- list(
+        quantiles=q,
+        type=type,
+        at=at,
+        w=q,
+        tick=tick,
+        horiz=horiz)
+    invisible(out)
 }
 
 ## d=density, h=hist, s=strip
