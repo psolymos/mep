@@ -170,8 +170,6 @@ lines(stairs(x, y), col=4)
 
 ## boxplot
 
-x <- rnorm(1000)
-
 qbox <-
 function(x, type="|I", at=0, w=0.5, tick=0.5,
 horiz=TRUE, add=FALSE,
@@ -190,9 +188,9 @@ lwd=1, lwd_med=2, col=1, col_med=1, col_box=NA, ...)
     b <- substr(type, 2, 2)
     if (!add) {
         if (horiz)
-            plot(NA, xlim=range(q), ylim=at+c(1, -1)*w, axes=FALSE, ann=FALSE, ...)
+            plot(q, rep(at, 5), type="n", axes=FALSE, ann=FALSE, ...)
         if (!horiz)
-            plot(NA, ylim=range(q), xlim=at+c(1, -1)*w, axes=FALSE, ann=FALSE, ...)
+            plot(rep(at, 5), q, type="n", axes=FALSE, ann=FALSE, ...)
     }
     if (a == "|") {
         if (horiz) {
@@ -222,10 +220,10 @@ lwd=1, lwd_med=2, col=1, col_med=1, col_box=NA, ...)
     if (b  %in% c("=", "I")) {
         if (horiz) {
             polygon(q[c(2,4,4,2)], at+c(1, 1, -1, -1)*w,
-                lwd=lwd_box, col=col_box, border=col_border)
+                lwd=lwd, col=col_box, border=col)
         } else {
             polygon(at+c(1, 1, -1, -1)*w, q[c(2,4,4,2)],
-                lwd=lwd_box, col=col_box, border=col_border)
+                lwd=lwd, col=col_box, border=col)
         }
     }
     if (b %in% c("+", "I")) {
@@ -245,9 +243,26 @@ lwd=1, lwd_med=2, col=1, col_med=1, col_box=NA, ...)
     invisible(out)
 }
 
+Type <- c(
+    " -", "--", "|-",
+    " +", "-+", "|+",
+    " =", "-=", "|=",
+    " I", "-I", "|I")
+set.seed(1)
+x <- rnorm(1000)
+qbox(x, type=Type[1], at=1, w=0.25, horiz=FALSE,
+    xlim=c(0, length(Type)+1), ylim=range(x))
+title(main="qbox types", ylab="x")
+axis(2)
+axis(1, at=1:length(Type), labels=paste0("'", Type, "'"),
+    family="mono", lwd=0, cex.axis=0.8)
+for (i in 2:length(Type))
+    qbox(x, type=Type[i], at=i, w=0.25, horiz=FALSE, add=TRUE)
+
 ## d=density, h=hist, s=strip
 dplot <- function(x, type="d", at=0, w=0.5, alpha=0, col=1, border=NA, add=FALSE) {
     type <- match.arg(type, c("d", "h", "s"))
+    ## take the range of z$x instead of x
     if (!add)
         plot(NA, xlim=range(x), ylim=at+c(1, -1)*w, axes=FALSE, ann=FALSE)#, ...)
     if (type == "d") {
@@ -267,32 +282,34 @@ dplot <- function(x, type="d", at=0, w=0.5, alpha=0, col=1, border=NA, add=FALSE
     y1 <- at+w*(1-alpha)*z$y
     y2 <- at-w*(1-alpha)*z$y
     p <- list(x=c(z$x, rev(z$x)), y=c(y1, rev(y2)))
-    ## need to distinguish full color from gradient, for type=s
     if (is.function(col)) {
         Cols <- col(100)
     } else {
-        if (length(col) > 1L) {
-            Cols <- colorRampPalette(col)(100)
-        } else {
-            Cols <- colorRampPalette(c("#FFFFFF", col))(100)
-        }
+        Cols <- if (type == "s")
+            colorRampPalette(c("#FFFFFF", col[1L]))(100) else col[1L]
     }
-    i <- Cols[cut(r, 100, include.lowest=TRUE, labels=FALSE)]
-    if (type == "d") {
-        for (j in 2:length(r)) {
-            k1 <- c(j-1, j)
-            k2 <- c(j, j-1)
-            polygon(z$x[c(k1, k2)], c(y1[k1], y2[k2]), border=NA, col=i[j])
-        }
+    if (length(Cols) < 2) {
+        polygon(p, col=col, border=border)
     } else {
-        for (j in 1:length(r)) {
-            k1 <- c(j*2-1, j*2)
-            k2 <- c(j*2, j*2-1)
-            polygon(z$x[c(k1, k2)], c(y1[k1], y2[k2]), border=NA, col=i[j])
+        i <- Cols[cut(r, 100, include.lowest=TRUE, labels=FALSE)]
+        if (type == "d") {
+            for (j in 2:length(r)) {
+                k1 <- c(j-1, j)
+                k2 <- c(j, j-1)
+                polygon(z$x[c(k1, k2)], c(y1[k1], y2[k2]),
+                    border=i[j], col=i[j])
+            }
+        } else {
+            for (j in 1:length(r)) {
+                k1 <- c(j*2-1, j*2)
+                k2 <- c(j*2, j*2-1)
+                polygon(z$x[c(k1, k2)], c(y1[k1], y2[k2]),
+                    border=i[j], col=i[j])
+            }
         }
+        polygon(p, col=NA, border=border)
     }
-    ## this does not work for density -- check that, can't use stairs
 
-    polygon(p, col=NA, border=border)
+    ## design return value
     invisible(NULL)
 }
