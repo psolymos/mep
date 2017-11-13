@@ -208,7 +208,7 @@ for (i in 2:length(Type))
 ## d=density, h=hist, s=strip
 dplot <-
 function(x, type="d", at=0, w=0.5, shift=0.5, col=par("fg"),
-border=NA, add=FALSE, horiz=TRUE, ...)
+border=NA, add=FALSE, horiz=TRUE, limit, ...)
 {
     type <- match.arg(type, c("d", "h", "s"))
     ## take the range of z$x instead of x
@@ -232,6 +232,12 @@ border=NA, add=FALSE, horiz=TRUE, ...)
     } else {
         z$y <- z$y/max(z$y)
     }
+    if (missing(limit))
+        limit <- range(z$x)
+    ii <- z$x >= limit[1] & z$x <= limit[2]
+    z$x <- z$x[ii]
+    z$y <- z$y[ii]
+
     if (shift < 0 || shift > 1)
         stop("shift must be in [0, 1]")
     y1 <- at+2*w*(1-shift)*z$y
@@ -375,14 +381,14 @@ quantiles4bkde <- function(x, y) {
     cs <- cumsum(f[o])[i]
     dim(cs) <- dim(d2$fhat)
     d2$cs <- cs
+    d2$bw <- bw
     d2
 }
 
 
-biplot <- function(x, y, col=1, ...) {
+biplot <- function(x, y, col=1, type="d", ...) {
     Pal <- colorRampPalette(c("#FFFFFF", col))(100)
     d <- quantiles4bkde(x, y)
-
     op <- par(xpd = TRUE, mar=c(5,4,4,4)+0.1)
     plot(x, y, type="n", xlim=range(d$x1), ylim=range(d$x2), axes=FALSE, ...)
     u <- par("usr")
@@ -392,18 +398,17 @@ biplot <- function(x, y, col=1, ...) {
     box(col=Pal[33])
     axis(1, col=Pal[100])
     axis(2, col=Pal[100])
-    dplot(x, horiz=TRUE, add=TRUE, type="d", col=Pal[33], border=NA,
-        at=u[4], shift=0, w=0.05*diff(u[3:4]))
+    dplot(x, horiz=TRUE, add=TRUE, type=type, col=Pal[33], border=NA,
+        at=u[4], shift=0, w=0.05*diff(u[3:4]), limit=u[1:2])
     qbox(x, type=" I", horiz=TRUE, col=Pal[66],
         col_med="#FFFFFF", col_box=Pal[66], lwd=2, lwd_med=3,
         at=u[4], w=0.01*diff(u[3:4]), add=TRUE)
-    dplot(y, horiz=FALSE, add=TRUE, type="d", col=Pal[33], border=NA,
-        at=u[2], shift=0, w=0.05*diff(u[1:2]))
+    dplot(y, horiz=FALSE, add=TRUE, type=type, col=Pal[33], border=NA,
+        at=u[2], shift=0, w=0.05*diff(u[1:2]), limit=u[3:4])
     qbox(y, type=" I", horiz=FALSE, col=Pal[66],
         col_med="#FFFFFF", col_box=Pal[66], lwd=2, lwd_med=3,
         at=u[2], w=0.01*diff(u[1:2]), add=TRUE)
     par(op)
-
     invisible(NULL)
 }
 
@@ -412,6 +417,8 @@ x <- c(rnorm(n/2, -2, 0.5), rnorm(n/2, 1, 1))
 y <- 0.8*x+rnorm(n, 0, 3)
 biplot(x, y, col=1)
 
+biplot(iris[,1], iris[,2])
+biplot(iris[,3], iris[,4])
 
 ## multivariate boxplot/violin
 
@@ -431,8 +438,10 @@ m <- length(xx)
 if (is.null(names(xx)))
     names(xx) <- paste0("V", seq_len(m))
 
+col=1
+Pal <- colorRampPalette(c("#FFFFFF", col))(100)
 plot(c(1-0.5, m+0.5), range(unlist(xx)), ann=FALSE, axes=FALSE, type="n")
-axis(1, seq_len(m), names(xx))
+axis(1, seq_len(m), names(xx), tick=FALSE)
 axis(2)
 for (i in seq_len(m)) {
     dplot(xx[[i]], horiz=FALSE, at=i, w=0.45, type="d", add=TRUE, col=Pal[50])
@@ -440,3 +449,5 @@ for (i in seq_len(m)) {
         col_med=Pal[100], col_box=Pal[1], lwd=2, lwd_med=3,
         at=i, w=0.05, add=TRUE)
 }
+#box(col=Pal[50])
+rug(seq_len(m), -0.03, lwd=1)
