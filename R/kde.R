@@ -1,11 +1,9 @@
-## kernel density estimates
+## Exploration
 
-library(KernSmooth)
-#library(ash)
-
-bw4bkde <-
+find_bw <-
 function (x, kernel = "normal", canonical = FALSE, bandwidth,
-    gridsize = 401L, range.x, truncate = TRUE) {
+    gridsize = 401L, range.x, truncate = TRUE)
+{
     if (!missing(bandwidth) && bandwidth <= 0)
         stop("'bandwidth' must be strictly positive")
     kernel <- match.arg(kernel, c("normal", "box", "epanech",
@@ -20,6 +18,330 @@ function (x, kernel = "normal", canonical = FALSE, bandwidth,
     else bandwidth
     h
 }
+density1 <-
+function(x, bw=NULL, ...)
+{
+    bw <- if (is.null(bw))
+        find_bw(x, ...) else find_bw(x, bandwidth=bw, ...)
+    out <- KernSmooth::bkde(x, bandwidth=bw, ...)
+    names(out)[names(out) == "y"] <- "f"
+    out$bw <- bw
+    out
+}
+
+## taken from https://github.com/juba/questionr
+cramer_v <-
+function(x)
+{
+  chid <- stats::chisq.test(x, correct=FALSE)$statistic
+  dim <- min(nrow(x),ncol(x)) - 1
+  as.numeric(sqrt(chid / (sum(x) * dim)))
+}
+fx1 <-
+function(x, ...)
+{
+    if (!is.null(dim(x)))
+        stop("x must be a vector")
+    out <- list(
+        x=NULL,
+        f=NULL,
+        n=NULL,
+        bw=NULL,
+        name=deparse(substitute(x)),
+#        stats=NULL,
+#        out=NULL,
+        type=NULL)
+    x <- x[!is.na(x)]
+    out$n <- length(x)
+    if (is.character(x))
+        x <- as.factor(x)
+    out$type <- if (!is.factor(x))
+        "cnt" else if (is.ordered(x))
+            "ord" else "nom"
+    if (out$type == "cnt")
+        if (isTRUE(all.equal(as.vector(x), as.integer(round(x + 0.001)))))
+            out$type <- "int"
+    if (out$type == "cnt") {
+        z <- density1(x, ...)
+        out$x <- z$x
+        out$f <- z$f
+        out$bw <- z$bw
+    }
+    if (out$type == "int") {
+        z <- table(x) / out$n
+        out$x <- sort(unique(x))
+        out$f <- as.numeric(z[match(as.character(out$x), names(z))])
+    }
+#    if (out$type %in% c("cnt", "int")) {
+#        z <- boxplot.stats(x, do.conf = FALSE)
+#        out$stats <- z$stats
+#        out$out <- z$out
+#    }
+    if (out$type %in% c("ord", "nom")) {
+        z <- table(x) / out$n
+        out$x <- factor(levels(x), levels(x), ordered=out$type == "ord")
+        out$f <- as.numeric(z[match(levels(x), names(z))])
+    }
+    class(out) <- "fx1"
+    out
+}
+
+plot.fx1 <-
+function(x, col=par("col"), las=1, ...)
+{
+    #col <- colorRampPalette(c("#FFFFFF", col))(100)[66]
+    xlim <- range(as.numeric(x$x))
+    if (x$type == "int") {
+        xlim[1] <- xlim[1] - 0.05*diff(xlim)
+        xlim[2] <- xlim[2] + 0.05*diff(xlim)
+    }
+    if (x$type %in% c("ord", "nom")) {
+        w <- if (x$type == "ord")
+            0.4 else 0.5
+        xlim[1] <- xlim[1] - w*1.05
+        xlim[2] <- xlim[2] + w*1.05
+    }
+    plot(as.numeric(x$x), x$f, xaxs = "i", yaxs = "i",
+        type="n", ann=FALSE, axes=FALSE, xlim=xlim, ...)
+    if (x$type == "cnt") {
+        polygon(x$x, x$f, col=col, border=col)
+        a1 <- axis(1, tick=FALSE, las=las)
+        rug(a1, -0.05, side=1, lwd=1, quiet=TRUE)
+    }
+    if (x$type == "int") {
+        segments(x0=x$x, y0=rep(0, length(x$f)), y1=x$f, lend=1,
+            col=col, lwd=3)
+        a1 <- axis(1, tick=FALSE, las=las) # plot(table()) has values only at x$x
+        rug(a1, -0.05, side=1, lwd=1, quiet=TRUE)
+    }
+    if (x$type %in% c("ord", "nom")) {
+        mid <- as.numeric(x$x)
+        for (i in seq_len(length(x$x))) {
+            if (x$f[i] > 0)
+                polygon(mid[i]+c(-w, -w, w, w),
+                    c(0, x$f[i], x$f[i], 0), border=col, col=col)
+        }
+        a1 <- axis(1, mid, levels(x$x), tick=FALSE, las=las)
+        rug(a1, -0.05, side=1, lwd=1, quiet=TRUE)
+        if (x$type == "ord")
+            axis(1, mid[-1]-0.5, rep("<", nlevels(x$x)-1), tick=FALSE, las=0)
+    }
+        a2 <- axis(2, tick=FALSE, las=las)
+        rug(a2, -0.05, side=2, lwd=1, quiet=TRUE)
+        title(ylab=paste0("f(", x$name, ")"), xlab=x$name)
+    invisible(x)
+}
+
+if (FALSE) {
+
+## continuous
+x1 <- rnorm(100)
+xx <- fx1(x1)
+sum(xx$f[-1]*diff(xx$x))
+## character = nominal
+x2 <- sample(LETTERS[1:4], 100, replace=TRUE, prob=4:1)
+xx <- fx1(x2)
+sum(xx$f)
+## factor = nominal
+xx <- fx1(as.factor(x2))
+sum(xx$f)
+## ordered = ordinal
+xx <- fx1(as.ordered(x2))
+sum(xx$f)
+## count data = integer
+x3 <- rpois(100, 2) - 1
+xx <- fx1(x3)
+sum(xx$f)
+
+col <- 2
+op <- par(mfrow=c(2,2))
+plot(fx1(x1), col=col)
+plot(fx1(x2), col=col)
+plot(fx1(as.ordered(x2)), col=col)
+plot(fx1(x3), col=col)
+par(op)
+
+}
+
+density2 <-
+function(x1, x2, bw1=NULL, bw2=NULL, m1=51L, m2=51L, ...)
+{
+    type <- c(is.factor(x1), is.factor(x2))
+    if (any(type)) {
+        if (all(type)) {
+            y <- unname(as.matrix(xtabs(~ x1 + x2, sparse = TRUE)))
+            out <- list(
+                x1=factor(levels(x1), levels(x1), ordered=is.ordered(x1)),
+                x2=factor(levels(x2), levels(x2), ordered=is.ordered(x2)),
+                f=y / sum(y),
+                bw1=bw1, bw2=bw2)
+        } else {
+            m <- if (type[1])
+                m2 else m1
+            cont <- if (type[1])
+                x2 else x1
+            disc <- if (type[1])
+                x1 else x2
+            br <- seq(min(cont), max(cont), length.out=m)
+            i <- cut(cont, br, include.lowest=TRUE)
+            levels(i) <- seq_len(m-1)
+            y <- unname(as.matrix(xtabs(~ i + disc, sparse = TRUE)))
+            #y <- y * diff(br) # needed only if breaks are uneven
+            y <- y / sum(y)
+            out <- if (type[1]) {
+                list(
+                    x1=factor(levels(x1), levels(x1), ordered=is.ordered(x1)),
+                    x2=0.5 * (br[-m] + br[-1]),
+                    f=t(y),
+                    bw1=bw1, bw2=bw2)
+            } else {
+                list(
+                    x1=0.5 * (br[-m] + br[-1]),
+                    x2=factor(levels(x2), levels(x2), ordered=is.ordered(x2)),
+                    f=y,
+                    bw1=bw1, bw2=bw2)
+            }
+        }
+    } else {
+        bw1 <- if (is.null(bw1))
+            find_bw(x1, ...) else find_bw(x1, bandwidth=bw1, ...)
+        bw2 <- if (is.null(bw2))
+            find_bw(x2, ...) else find_bw(x2, bandwidth=bw2, ...)
+        out <- KernSmooth::bkde2D(cbind(x1, x2),
+            bandwidth=c(bw1, bw2), gridsize=c(m1, m2), ...)
+        names(out)[names(out) == "fhat"] <- "f"
+        out$bw1 <- bw1
+        out$bw2 <- bw2
+    }
+    out
+}
+
+
+x1 <- rnorm(100)
+x2 <- as.factor(sample(LETTERS[1:4], 100, replace=TRUE, prob=4:1))
+x1 <- as.factor(sample(LETTERS[5:10], 100, replace=TRUE))
+str(density2(x1, x1))
+str(density2(x1, x2))
+str(density2(x2, x1))
+str(density2(x2, x2))
+
+fx2 <-
+function(x1, x2, ...)
+{
+    if (!is.null(dim(x1)))
+        stop("x1 must be a vector")
+    if (!is.null(dim(x2)))
+        stop("x2 must be a vector")
+    out <- list(
+        x1=NULL,
+        x2=NULL,
+        f=NULL,
+        n=NULL,
+        bw1=NULL,
+        bw2=NULL,
+        cor=NULL,
+        name1=deparse(substitute(x1)),
+        name2=deparse(substitute(x2)),
+        type1=NULL,
+        type2=NULL)
+    keep <- !is.na(x1) & !is.na(x2)
+    x1 <- x1[keep]
+    x2 <- x2[keep]
+    out$n <- sum(keep)
+    if (is.character(x1))
+        x1 <- as.factor(x1)
+    if (is.character(x2))
+        x2 <- as.factor(x2)
+    out$type1 <- if (!is.factor(x1))
+        "cnt" else if (is.ordered(x1))
+            "ord" else "nom"
+    if (out$type1 == "cnt")
+        if (isTRUE(all.equal(as.vector(x1), as.integer(round(x1 + 0.001)))))
+            out$type1 <- "int"
+    out$type2 <- if (!is.factor(x2))
+        "cnt" else if (is.ordered(x2))
+            "ord" else "nom"
+    if (out$type2 == "cnt")
+        if (isTRUE(all.equal(as.vector(x2), as.integer(round(x2 + 0.001)))))
+            out$type <- "int"
+    z <- density2(x1, x2, ...)
+    out$x1 <- z$x1
+    out$x2 <- z$x2
+    out$f <- z$f
+    out$bw1 <- z$bw1
+    out$bw2 <- z$bw2
+    if (out$type1 != "nom" && out$type2 != "nom")
+        out$cor <- cor(as.numeric(x1), as.numeric(x2), method="spearman")
+    if (out$type1 != "nom" && out$type2 == "nom") {
+        LM <- lm(x1 ~ x2)
+        out$cor <- sqrt(summary(LM)$r.squared)
+    }
+    if (out$type1 == "nom" && out$type2 != "nom") {
+        LM <- lm(x2 ~ x1)
+        out$cor <- sqrt(summary(LM)$r.squared)
+    }
+    if (out$type1 == "nom" && out$type2 == "nom")
+        out$cor <- suppressWarnings(cramer_v(out$f * out$n))
+    class(out) <- "fx2"
+    out
+}
+
+plot.fx2 <-
+function(x, col=par("col"), las=1, ...)
+{
+    if (!is.function(col) && length(col) < 2L) {
+        col <- colorRampPalette(c("#FFFFFF", col))(100)
+    } else {
+        if (is.function(col))
+            col <- col(100)
+    }
+    image(as.numeric(x$x1), as.numeric(x$x2), x$f, col=col,
+        ann=FALSE, axes=FALSE)#, ...)
+    if (x$type1 %in% c("cnt", "int")) {
+        a1 <- axis(1, tick=FALSE, las=las)
+        rug(a1, -0.05, side=1, lwd=1, quiet=TRUE)
+    } else {
+        a1 <- axis(1, as.numeric(x$x1), levels(x$x1), tick=FALSE, las=las)
+        rug(a1, -0.05, side=1, lwd=1, quiet=TRUE)
+        if (x$type1 == "ord")
+            axis(1, as.numeric(x$x1)[-1]-0.5,
+                rep("<", nlevels(x$x1)-1), tick=FALSE, las=0)
+    }
+    if (x$type2 %in% c("cnt", "int")) {
+        a2 <- axis(2, tick=FALSE, las=las)
+        rug(a2, -0.05, side=2, lwd=1, quiet=TRUE)
+    } else {
+        a2 <- axis(2, as.numeric(x$x2), levels(x$x2), tick=FALSE, las=las)
+        rug(a2, -0.05, side=2, lwd=1, quiet=TRUE)
+        if (x$type2 == "ord")
+            axis(2, as.numeric(x$x2)[-1]-0.5,
+                rep("<", nlevels(x$x2)-1), tick=FALSE, las=0)
+    }
+    invisible(x)
+}
+
+z <- fx2(rnorm(100),rnorm(100))
+z <- fx2(rnorm(100),rpois(100, 2) - 1)
+x2 <- sample(LETTERS[1:4], 100, replace=TRUE, prob=4:1)
+x1 <- sample(LETTERS[1:4], 100, replace=TRUE, prob=4:1)
+z <- fx2(x1,x2)
+z <- fx2(rnorm(100),x2)
+z <- fx2(rnorm(100),as.ordered(x2))
+image(as.numeric(z[[1]]), as.numeric(z[[2]]), z[[3]])
+
+#x <- rnorm(100)
+#x <- rpois(100, 2) - 1
+x <- sample(LETTERS[1:4], 100, replace=TRUE, prob=4:1)
+xx <- fx_uv(x)
+xx <- fx_uv(as.ordered(x))
+
+plot_fx_uv(xx)
+
+## kernel density estimates
+
+library(KernSmooth)
+#library(ash)
+
 
 n <- 1000
 x <- c(rnorm(n/2, -2, 0.5), rnorm(n/2, 1, 1))
