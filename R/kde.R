@@ -316,9 +316,9 @@ function(x1, x2, bw1=NULL, bw2=NULL, m1=51L, m2=51L, ...)
     out$range2 <- range(as.numeric(x2))
 
     if (out$type1 != "cnt")
-        bw1 <- 1/3
+        bw1 <- 0.25
     if (out$type2 != "cnt")
-        bw2 <- 1/3
+        bw2 <- 0.25
     bw1 <- if (is.null(bw1))
         find_bw(x1) else find_bw(x1, bandwidth=bw1)
     bw2 <- if (is.null(bw2))
@@ -388,6 +388,7 @@ function(x1, x2, bw1=NULL, bw2=NULL, m1=51L, m2=51L, ...)
     out
 }
 
+## add option for condition on none (NULL), x1 or x2.
 plot.fx2 <-
 function(x, col=par("col"), las=1, ...)
 {
