@@ -29,14 +29,43 @@ function(x, bw=NULL, ...)
     out
 }
 
-## taken from https://github.com/juba/questionr
 cramer_v <-
 function(x)
 {
-  chid <- stats::chisq.test(x, correct=FALSE)$statistic
-  dim <- min(nrow(x),ncol(x)) - 1
-  as.numeric(sqrt(chid / (sum(x) * dim)))
+    n <- sum(x)
+    E <- outer(rowSums(x), colSums(x), "*") / n
+    ChiSq <- sum((x - E)^2 / E)
+    sqrt((ChiSq / n) / min(nrow(x) - 1L, ncol(x) - 1L))
 }
+
+sum_fx <- function(x) {
+    f <- x$f
+    if (is.null(dim(f))) {
+        d <- diff(as.numeric(x$x))
+        d <- c(d[1L], d)
+        out <- sum(f * d)
+    } else {
+        d1 <- diff(as.numeric(x$x1))
+        d1 <- c(d1[1L], d1)
+        d2 <- diff(as.numeric(x$x2))
+        d2 <- c(d2[1L], d2)
+        out <- sum(t(f * d1) * d2)
+    }
+    out
+}
+
+get_type <- function(x) {
+    if (is.character(x))
+        return("nom")
+    type <- if (!is.factor(x))
+        "cnt" else if (is.ordered(x))
+            "ord" else "nom"
+    if (type == "cnt")
+        if (isTRUE(all.equal(as.vector(x), as.integer(round(x + 0.001)))))
+            type <- "int"
+    type
+}
+
 fx1 <-
 function(x, ...)
 {
@@ -48,62 +77,70 @@ function(x, ...)
         n=NULL,
         bw=NULL,
         name=deparse(substitute(x)),
-#        stats=NULL,
-#        out=NULL,
+        range=NULL,
         type=NULL)
     x <- x[!is.na(x)]
     out$n <- length(x)
     if (is.character(x))
         x <- as.factor(x)
-    out$type <- if (!is.factor(x))
-        "cnt" else if (is.ordered(x))
-            "ord" else "nom"
-    if (out$type == "cnt")
-        if (isTRUE(all.equal(as.vector(x), as.integer(round(x + 0.001)))))
-            out$type <- "int"
+    out$type <- get_type(x)
     if (out$type == "cnt") {
         z <- density1(x, ...)
         out$x <- z$x
         out$f <- z$f
         out$bw <- z$bw
+        out$range <- range(x)
     }
     if (out$type == "int") {
         z <- table(x) / out$n
         out$x <- sort(unique(x))
         out$f <- as.numeric(z[match(as.character(out$x), names(z))])
+        out$range <- range(x)
     }
-#    if (out$type %in% c("cnt", "int")) {
-#        z <- boxplot.stats(x, do.conf = FALSE)
-#        out$stats <- z$stats
-#        out$out <- z$out
-#    }
     if (out$type %in% c("ord", "nom")) {
         z <- table(x) / out$n
         out$x <- factor(levels(x), levels(x), ordered=out$type == "ord")
         out$f <- as.numeric(z[match(levels(x), names(z))])
+        out$range <- range(as.numeric(out$x))
     }
     class(out) <- "fx1"
     out
+}
+
+axis_range <- function(range, type, w=0.5, dim=1) {
+    lim <- range
+    if (dim == 1) {
+        if (type == "int") {
+            lim[1] <- lim[1] - 0.05*diff(range)
+            lim[2] <- lim[2] + 0.05*diff(range)
+        }
+        if (type %in% c("ord", "nom")) {
+            lim[1] <- lim[1] - w*1.05
+            lim[2] <- lim[2] + w*1.05
+        }
+    } else {
+        if (type != "cnt")
+            lim[1] <- lim[1] - 0.5
+            lim[2] <- lim[2] + 0.5
+    }
+    lim
 }
 
 plot.fx1 <-
 function(x, col=par("col"), las=1, ...)
 {
     #col <- colorRampPalette(c("#FFFFFF", col))(100)[66]
-    xlim <- range(as.numeric(x$x))
-    if (x$type == "int") {
-        xlim[1] <- xlim[1] - 0.05*diff(xlim)
-        xlim[2] <- xlim[2] + 0.05*diff(xlim)
-    }
-    if (x$type %in% c("ord", "nom")) {
-        w <- if (x$type == "ord")
-            0.4 else 0.5
-        xlim[1] <- xlim[1] - w*1.05
-        xlim[2] <- xlim[2] + w*1.05
-    }
+    w <- if (x$type == "ord")
+        0.4 else 0.5
+    xlim <- axis_range(x$range, x$type, w=w, dim=1)
     plot(as.numeric(x$x), x$f, xaxs = "i", yaxs = "i",
         type="n", ann=FALSE, axes=FALSE, xlim=xlim, ...)
     if (x$type == "cnt") {
+#        i <- x$x >= x$range[1] & x$x <= x$range[2]
+#        xx <- x$x[i]
+#        xx <- c(xx[1], xx, xx[length(xx)])
+#        xf <- c(0, x$f[i], 0)
+#        polygon(xx, xf, col=col, border=col)
         polygon(x$x, x$f, col=col, border=col)
         a1 <- axis(1, tick=FALSE, las=las)
         rug(a1, -0.05, side=1, lwd=1, quiet=TRUE)
@@ -111,8 +148,13 @@ function(x, col=par("col"), las=1, ...)
     if (x$type == "int") {
         segments(x0=x$x, y0=rep(0, length(x$f)), y1=x$f, lend=1,
             col=col, lwd=3)
-        a1 <- axis(1, tick=FALSE, las=las) # plot(table()) has values only at x$x
-        rug(a1, -0.05, side=1, lwd=1, quiet=TRUE)
+        if (length(x$x) <= 5) {
+            a1 <- axis(1, x$x, x$x, tick=FALSE, las=las)
+            rug(a1, -0.05, side=1, lwd=1, quiet=TRUE)
+        } else {
+            a1 <- axis(1, tick=FALSE, las=las) # plot(table()) has values only at x$x
+            rug(a1, -0.05, side=1, lwd=1, quiet=TRUE)
+        }
     }
     if (x$type %in% c("ord", "nom")) {
         mid <- as.numeric(x$x)
@@ -137,21 +179,21 @@ if (FALSE) {
 ## continuous
 x1 <- rnorm(100)
 xx <- fx1(x1)
-sum(xx$f[-1]*diff(xx$x))
+sum_fx(xx)
 ## character = nominal
 x2 <- sample(LETTERS[1:4], 100, replace=TRUE, prob=4:1)
 xx <- fx1(x2)
-sum(xx$f)
+sum_fx(xx)
 ## factor = nominal
 xx <- fx1(as.factor(x2))
-sum(xx$f)
+sum_fx(xx)
 ## ordered = ordinal
 xx <- fx1(as.ordered(x2))
-sum(xx$f)
+sum_fx(xx)
 ## count data = integer
 x3 <- rpois(100, 2) - 1
 xx <- fx1(x3)
-sum(xx$f)
+sum_fx(xx)
 
 col <- 2
 op <- par(mfrow=c(2,2))
@@ -163,7 +205,7 @@ par(op)
 
 }
 
-density2 <-
+density2old <-
 function(x1, x2, bw1=NULL, bw2=NULL, m1=51L, m2=51L, ...)
 {
     type <- c(is.factor(x1), is.factor(x2))
@@ -182,29 +224,44 @@ function(x1, x2, bw1=NULL, bw2=NULL, m1=51L, m2=51L, ...)
                 x2 else x1
             disc <- if (type[1])
                 x1 else x2
-            br <- seq(min(cont), max(cont), length.out=m)
+            ctype <- if (type[1])
+                get_type(x2) else get_type(x1)
+            br <- if (ctype == "int") {
+                seq(min(cont)-0.5, max(cont)+0.5, by=1)
+            } else {
+                seq(min(cont), max(cont), length.out=m)
+            }
             i <- cut(cont, br, include.lowest=TRUE)
-            levels(i) <- seq_len(m-1)
+            levels(i) <- seq_len(nlevels(i))
             y <- unname(as.matrix(xtabs(~ i + disc, sparse = TRUE)))
-            #y <- y * diff(br) # needed only if breaks are uneven
-            y <- y / sum(y)
+            y <- y / (sum(y) * diff(br))
             out <- if (type[1]) {
                 list(
                     x1=factor(levels(x1), levels(x1), ordered=is.ordered(x1)),
-                    x2=0.5 * (br[-m] + br[-1]),
+                    x2=0.5 * (br[-length(br)] + br[-1]),
                     f=t(y),
                     bw1=bw1, bw2=bw2)
             } else {
                 list(
-                    x1=0.5 * (br[-m] + br[-1]),
+                    x1=0.5 * (br[-length(br)] + br[-1]),
                     x2=factor(levels(x2), levels(x2), ordered=is.ordered(x2)),
                     f=y,
                     bw1=bw1, bw2=bw2)
             }
         }
     } else {
+        ## need to fix density2: FIXME !!! ???
+        ## cnt-int: integer breaks need to be added
+        #if (get_type(x1) == "int" || get_type(x2) == "int")
+        #    stop("integer break to be implemented")
+        if (get_type(x1) == "int") {
+            m1 <- diff(range(x1)) + 1
+        }
         bw1 <- if (is.null(bw1))
             find_bw(x1, ...) else find_bw(x1, bandwidth=bw1, ...)
+        if (get_type(x2) == "int") {
+            m2 <- diff(range(x2)) + 1
+        }
         bw2 <- if (is.null(bw2))
             find_bw(x2, ...) else find_bw(x2, bandwidth=bw2, ...)
         out <- KernSmooth::bkde2D(cbind(x1, x2),
@@ -216,7 +273,6 @@ function(x1, x2, bw1=NULL, bw2=NULL, m1=51L, m2=51L, ...)
     out
 }
 
-
 x1 <- rnorm(100)
 x2 <- as.factor(sample(LETTERS[1:4], 100, replace=TRUE, prob=4:1))
 x1 <- as.factor(sample(LETTERS[5:10], 100, replace=TRUE))
@@ -226,7 +282,7 @@ str(density2(x2, x1))
 str(density2(x2, x2))
 
 fx2 <-
-function(x1, x2, ...)
+function(x1, x2, bw1=NULL, bw2=NULL, m1=51L, m2=51L, ...)
 {
     if (!is.null(dim(x1)))
         stop("x1 must be a vector")
@@ -240,6 +296,8 @@ function(x1, x2, ...)
         bw1=NULL,
         bw2=NULL,
         cor=NULL,
+        range1=NULL,
+        range2=NULL,
         name1=deparse(substitute(x1)),
         name2=deparse(substitute(x2)),
         type1=NULL,
@@ -252,37 +310,81 @@ function(x1, x2, ...)
         x1 <- as.factor(x1)
     if (is.character(x2))
         x2 <- as.factor(x2)
-    out$type1 <- if (!is.factor(x1))
-        "cnt" else if (is.ordered(x1))
-            "ord" else "nom"
-    if (out$type1 == "cnt")
-        if (isTRUE(all.equal(as.vector(x1), as.integer(round(x1 + 0.001)))))
-            out$type1 <- "int"
-    out$type2 <- if (!is.factor(x2))
-        "cnt" else if (is.ordered(x2))
-            "ord" else "nom"
-    if (out$type2 == "cnt")
-        if (isTRUE(all.equal(as.vector(x2), as.integer(round(x2 + 0.001)))))
-            out$type <- "int"
-    z <- density2(x1, x2, ...)
+    out$type1 <- get_type(x1)
+    out$type2 <- get_type(x2)
+    out$range1 <- range(as.numeric(x1))
+    out$range2 <- range(as.numeric(x2))
+
+    if (out$type1 != "cnt")
+        bw1 <- 1/3
+    if (out$type2 != "cnt")
+        bw2 <- 1/3
+    bw1 <- if (is.null(bw1))
+        find_bw(x1) else find_bw(x1, bandwidth=bw1)
+    bw2 <- if (is.null(bw2))
+        find_bw(x2) else find_bw(x2, bandwidth=bw2)
+    z <- KernSmooth::bkde2D(
+        cbind(as.numeric(x1), as.numeric(x2)),
+        bandwidth=c(bw1, bw2),
+        gridsize=c(m1, m2), ...)
     out$x1 <- z$x1
     out$x2 <- z$x2
-    out$f <- z$f
-    out$bw1 <- z$bw1
-    out$bw2 <- z$bw2
+    out$f <- z$fhat
+
+    if (out$type1 == "cnt") {
+        i1 <- seq_len(length(out$x1))
+        d1 <- diff(z$x1[1:2])
+    } else {
+        d1 <- 1
+    }
+    if (out$type1 == "int") {
+        x1n <- seq(min(x1), max(x1), by=1)
+        i1 <- sapply(x1n, function(z) which.min(abs(z - out$x1)))
+    }
+    if (out$type1 %in% c("ord", "nom")) {
+        x1n <- factor(levels(x1), levels(x1), ordered=type1 == "ord")
+        x1c <- as.numeric(x1n)
+        i1 <- sapply(x1c, function(z) which.min(abs(z - out$x1)))
+    }
+    if (out$type2 == "cnt") {
+        i2 <- seq_len(length(out$x2))
+        d2 <- diff(z$x2[1:2])
+    } else {
+        d2 <- 1
+    }
+    if (out$type2 == "int") {
+        x2n <- seq(min(x2), max(x2), by=1)
+        i2 <- sapply(x2n, function(z) which.min(abs(z - out$x2)))
+    }
+    if (out$type2 %in% c("ord", "nom")) {
+        x2n <- factor(levels(x2), levels(x2), ordered=type2 == "ord")
+        x2c <- as.numeric(x2n)
+        i2 <- sapply(x2c, function(z) which.min(abs(z - out$x2)))
+    }
+    if (out$type1 != "cnt")
+        out$x1 <- x1n
+    if (out$type2 != "cnt")
+        out$x2 <- x2n
+    ## subset & standardize
+    out$f <- out$f[i1, i2, drop=FALSE]
+    out$f <- out$f / (d1 * d2 * sum(out$f))
+    out$bw1 <- bw1
+    out$bw2 <- bw2
+
     if (out$type1 != "nom" && out$type2 != "nom")
         out$cor <- cor(as.numeric(x1), as.numeric(x2), method="spearman")
     if (out$type1 != "nom" && out$type2 == "nom") {
-        LM <- lm(x1 ~ x2)
+        LM <- lm(as.numeric(x1) ~ x2)
         out$cor <- sqrt(summary(LM)$r.squared)
     }
     if (out$type1 == "nom" && out$type2 != "nom") {
-        LM <- lm(x2 ~ x1)
+        LM <- lm(as.numeric(x2) ~ x1)
         out$cor <- sqrt(summary(LM)$r.squared)
     }
     if (out$type1 == "nom" && out$type2 == "nom")
-        out$cor <- suppressWarnings(cramer_v(out$f * out$n))
+        out$cor <- cramer_v(out$f * out$n)
     class(out) <- "fx2"
+    out$z <- z
     out
 }
 
@@ -290,16 +392,25 @@ plot.fx2 <-
 function(x, col=par("col"), las=1, ...)
 {
     if (!is.function(col) && length(col) < 2L) {
-        col <- colorRampPalette(c("#FFFFFF", col))(100)
+        col <- colorRampPalette(c(par("bg"), col))(100)
     } else {
         if (is.function(col))
             col <- col(100)
     }
+    xlim <- axis_range(x$range1, x$type1, dim=2)
+    ylim <- axis_range(x$range2, x$type2, dim=2)
+
     image(as.numeric(x$x1), as.numeric(x$x2), x$f, col=col,
-        ann=FALSE, axes=FALSE)#, ...)
+        ann=FALSE, axes=FALSE, xlim=xlim, ylim=ylim, ...)
+    title(xlab=x$name1, ylab=x$name2)
     if (x$type1 %in% c("cnt", "int")) {
-        a1 <- axis(1, tick=FALSE, las=las)
-        rug(a1, -0.05, side=1, lwd=1, quiet=TRUE)
+        if (x$type1 == "int" && length(x$x1) <= 5) {
+            a1 <- axis(1, x$x1, x$x1, tick=FALSE, las=las)
+            rug(a1, -0.05, side=1, lwd=1, quiet=TRUE)
+        } else {
+            a1 <- axis(1, tick=FALSE, las=las) # plot(table()) has values only at x$x
+            rug(a1, -0.05, side=1, lwd=1, quiet=TRUE)
+        }
     } else {
         a1 <- axis(1, as.numeric(x$x1), levels(x$x1), tick=FALSE, las=las)
         rug(a1, -0.05, side=1, lwd=1, quiet=TRUE)
@@ -308,8 +419,13 @@ function(x, col=par("col"), las=1, ...)
                 rep("<", nlevels(x$x1)-1), tick=FALSE, las=0)
     }
     if (x$type2 %in% c("cnt", "int")) {
-        a2 <- axis(2, tick=FALSE, las=las)
-        rug(a2, -0.05, side=2, lwd=1, quiet=TRUE)
+        if (x$type2 == "int" && length(x$x2) <= 5) {
+            a2 <- axis(2, x$x2, x$x2, tick=FALSE, las=las)
+            rug(a2, -0.05, side=1, lwd=1, quiet=TRUE)
+        } else {
+            a2 <- axis(2, tick=FALSE, las=las)
+            rug(a2, -0.05, side=2, lwd=1, quiet=TRUE)
+        }
     } else {
         a2 <- axis(2, as.numeric(x$x2), levels(x$x2), tick=FALSE, las=las)
         rug(a2, -0.05, side=2, lwd=1, quiet=TRUE)
@@ -321,27 +437,86 @@ function(x, col=par("col"), las=1, ...)
 }
 
 z <- fx2(rnorm(100),rnorm(100))
+sum_fx(z)
 z <- fx2(rnorm(100),rpois(100, 2) - 1)
+sum_fx(z)
 x2 <- sample(LETTERS[1:4], 100, replace=TRUE, prob=4:1)
 x1 <- sample(LETTERS[1:4], 100, replace=TRUE, prob=4:1)
 z <- fx2(x1,x2)
+sum_fx(z)
 z <- fx2(rnorm(100),x2)
+sum_fx(z)
 z <- fx2(rnorm(100),as.ordered(x2))
+sum_fx(z)
 image(as.numeric(z[[1]]), as.numeric(z[[2]]), z[[3]])
 
-#x <- rnorm(100)
-#x <- rpois(100, 2) - 1
-x <- sample(LETTERS[1:4], 100, replace=TRUE, prob=4:1)
-xx <- fx_uv(x)
-xx <- fx_uv(as.ordered(x))
+n <- 100
+dat <- data.frame(
+    cnt1 = rnorm(n),
+    cnt2 = rgamma(n, 2),
+    int1 = rpois(n, 2) - 1,
+    int2 = rbinom(n, 1, 1/3),
+    nom1 = factor(sample(LETTERS[1:3], n, replace=TRUE, prob=3:1), LETTERS[3:1]),
+    nom2 = as.factor(sample(letters[1:10], n, replace=TRUE, prob=sqrt(1:10))))
+dat$ord1 <- as.ordered(sample(dat$nom1))
+dat$ord2 <- as.ordered(sample(dat$nom2))
+summary(dat)
 
-plot_fx_uv(xx)
+pairs.default(dat)
+pairs.default(dat,
+    panel=function(x,y,...) plot(fx2(x,y,...)),
+    diag.panel=function(x, ...) plot(fx1(x,...)))
+
+slice <- lapply(colnames(dat), function(i) fx1(dat[,i]))
+for (i in seq_len(length(slice)))
+    slice[[i]]$name <- colnames(dat)[i]
+plot(slice[[2]])
+
+K <- ncol(dat)
+D <- diag(1, K, K)
+ID <- data.frame(
+    row = row(D)[lower.tri(D)],
+    col = col(D)[lower.tri(D)])
+dice <- lapply(rownames(ID), function(i) fx2(dat[,ID[i,1]], dat[,ID[i,2]]))
+for (i in seq_len(length(dice))) {
+    dice[[i]]$name1 <- colnames(dat)[ID[i,1]]
+    dice[[i]]$name2 <- colnames(dat)[ID[i,2]]
+}
+plot(dice[[14]])
+
+i=1;str(fx2(dat[,ID[i,1]], dat[,ID[i,2]]))
+i=2;str(fx2(dat[,ID[i,1]], dat[,ID[i,2]]))
+i=3;str(fx2(dat[,ID[i,1]], dat[,ID[i,2]]))
+i=4;str(fx2(dat[,ID[i,1]], dat[,ID[i,2]]))
+i=5;str(fx2(dat[,ID[i,1]], dat[,ID[i,2]]))
+i=6;str(fx2(dat[,ID[i,1]], dat[,ID[i,2]]))
+i=7;str(fx2(dat[,ID[i,1]], dat[,ID[i,2]]))
+i=8;str(fx2(dat[,ID[i,1]], dat[,ID[i,2]]))
+i=9;str(fx2(dat[,ID[i,1]], dat[,ID[i,2]]))
+i=10;str(fx2(dat[,ID[i,1]], dat[,ID[i,2]]))
+i=11;str(fx2(dat[,ID[i,1]], dat[,ID[i,2]]))
+i=12;str(fx2(dat[,ID[i,1]], dat[,ID[i,2]]))
+i=13;str(fx2(dat[,ID[i,1]], dat[,ID[i,2]]))
+i=14;str(fx2(dat[,ID[i,1]], dat[,ID[i,2]]))
+i=15;str(fx2(dat[,ID[i,1]], dat[,ID[i,2]]))
+i=16;str(fx2(dat[,ID[i,1]], dat[,ID[i,2]]))
+i=17;str(fx2(dat[,ID[i,1]], dat[,ID[i,2]]))
+i=18;str(fx2(dat[,ID[i,1]], dat[,ID[i,2]]))
+i=19;str(fx2(dat[,ID[i,1]], dat[,ID[i,2]]))
+i=20;str(fx2(dat[,ID[i,1]], dat[,ID[i,2]]))
+i=21;str(fx2(dat[,ID[i,1]], dat[,ID[i,2]]))
+i=22;str(fx2(dat[,ID[i,1]], dat[,ID[i,2]]))
+i=23;str(fx2(dat[,ID[i,1]], dat[,ID[i,2]]))
+i=24;str(fx2(dat[,ID[i,1]], dat[,ID[i,2]])) # !
+i=25;str(fx2(dat[,ID[i,1]], dat[,ID[i,2]])) # !
+i=26;str(fx2(dat[,ID[i,1]], dat[,ID[i,2]])) # !
+i=27;str(fx2(dat[,ID[i,1]], dat[,ID[i,2]])) # !
+i=28;str(fx2(dat[,ID[i,1]], dat[,ID[i,2]]))
 
 ## kernel density estimates
 
 library(KernSmooth)
 #library(ash)
-
 
 n <- 1000
 x <- c(rnorm(n/2, -2, 0.5), rnorm(n/2, 1, 1))
@@ -773,3 +948,32 @@ for (i in seq_len(m)) {
 }
 #box(col=Pal[50])
 rug(seq_len(m), -0.03, lwd=1)
+
+
+
+library(microbenchmark)
+
+## taken from https://github.com/juba/questionr
+Cramer_V <- function(x) {
+  chid <- stats::chisq.test(x, correct=FALSE)$statistic
+  dim <- min(nrow(x),ncol(x)) - 1
+  as.numeric(sqrt(chid / (sum(x) * dim)))
+}
+
+## chisq.test based value takes 5.6x longer
+x1 <- sample(LETTERS[1:4], 100, replace=TRUE, prob=4:1)
+x2 <- sample(LETTERS[1:4], 100, replace=TRUE, prob=4:1)
+x <- table(x1, x2)
+b <- microbenchmark(
+    this=cramer_v(x),
+    questionr=Cramer_V(x)
+)
+
+## kde is 3x faster
+x <- rnorm(10000)
+b <- microbenchmark(
+    fft=density(x),
+    kde=KernSmooth::bkde(x)
+)
+library(ggplot2)
+autoplot(b)
