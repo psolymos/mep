@@ -1,3 +1,8 @@
+## TODO:
+## - conditional plots for fx2
+## - heatmap with +/- corr
+## - pairs plot
+
 ## Exploration
 
 find_bw <-
@@ -55,6 +60,8 @@ sum_fx <- function(x) {
 }
 
 get_type <- function(x) {
+    if (is.logical(x))
+        return("int")
     if (is.character(x))
         return("nom")
     type <- if (!is.factor(x))
@@ -83,6 +90,8 @@ function(x, ...)
     out$n <- length(x)
     if (is.character(x))
         x <- as.factor(x)
+    if (is.logical(x))
+        x <- as.integer(x)
     out$type <- get_type(x)
     if (out$type == "cnt") {
         z <- density1(x, ...)
@@ -310,6 +319,10 @@ function(x1, x2, bw1=NULL, bw2=NULL, m1=51L, m2=51L, ...)
         x1 <- as.factor(x1)
     if (is.character(x2))
         x2 <- as.factor(x2)
+    if (is.logical(x1))
+        x1 <- as.integer(x1)
+    if (is.logical(x2))
+        x2 <- as.integer(x2)
     out$type1 <- get_type(x1)
     out$type2 <- get_type(x2)
     out$range1 <- range(as.numeric(x1))
@@ -342,7 +355,7 @@ function(x1, x2, bw1=NULL, bw2=NULL, m1=51L, m2=51L, ...)
         i1 <- sapply(x1n, function(z) which.min(abs(z - out$x1)))
     }
     if (out$type1 %in% c("ord", "nom")) {
-        x1n <- factor(levels(x1), levels(x1), ordered=type1 == "ord")
+        x1n <- factor(levels(x1), levels(x1), ordered=out$type1 == "ord")
         x1c <- as.numeric(x1n)
         i1 <- sapply(x1c, function(z) which.min(abs(z - out$x1)))
     }
@@ -357,7 +370,7 @@ function(x1, x2, bw1=NULL, bw2=NULL, m1=51L, m2=51L, ...)
         i2 <- sapply(x2n, function(z) which.min(abs(z - out$x2)))
     }
     if (out$type2 %in% c("ord", "nom")) {
-        x2n <- factor(levels(x2), levels(x2), ordered=type2 == "ord")
+        x2n <- factor(levels(x2), levels(x2), ordered=out$type2 == "ord")
         x2c <- as.numeric(x2n)
         i2 <- sapply(x2c, function(z) which.min(abs(z - out$x2)))
     }
@@ -384,14 +397,32 @@ function(x1, x2, bw1=NULL, bw2=NULL, m1=51L, m2=51L, ...)
     if (out$type1 == "nom" && out$type2 == "nom")
         out$cor <- cramer_v(out$f * out$n)
     class(out) <- "fx2"
-    out$z <- z
+    #out$z <- z
     out
 }
 
+flip_fx2 <- function(x)
+{
+    tmp <- x
+    x$x1 <- tmp$x2
+    x$x2 <- tmp$x1
+    x$f <- t(x$f)
+    x$bw1 <- tmp$bw2
+    x$bw2 <- tmp$bw1
+    x$range1 <- tmp$range2
+    x$range2 <- tmp$range1
+    x$type1 <- tmp$type2
+    x$type2 <- tmp$type1
+    x$name1 <- tmp$name2
+    x$name2 <- tmp$name1
+    x
+}
 ## add option for condition on none (NULL), x1 or x2.
 plot.fx2 <-
-function(x, col=par("col"), las=1, ...)
+function(x, flip=FALSE, col=par("col"), las=1, ...)
 {
+    if (flip)
+        x <- flip_fx2(x)
     if (!is.function(col) && length(col) < 2L) {
         col <- colorRampPalette(c(par("bg"), col))(100)
     } else {
@@ -468,22 +499,117 @@ pairs.default(dat,
     panel=function(x,y,...) plot(fx2(x,y,...)),
     diag.panel=function(x, ...) plot(fx1(x,...)))
 
-slice <- lapply(colnames(dat), function(i) fx1(dat[,i]))
-for (i in seq_len(length(slice)))
-    slice[[i]]$name <- colnames(dat)[i]
-plot(slice[[2]])
-
-K <- ncol(dat)
-D <- diag(1, K, K)
-ID <- data.frame(
-    row = row(D)[lower.tri(D)],
-    col = col(D)[lower.tri(D)])
-dice <- lapply(rownames(ID), function(i) fx2(dat[,ID[i,1]], dat[,ID[i,2]]))
-for (i in seq_len(length(dice))) {
-    dice[[i]]$name1 <- colnames(dat)[ID[i,1]]
-    dice[[i]]$name2 <- colnames(dat)[ID[i,2]]
+slice <-
+function(x, ...)
+{
+    out <- lapply(colnames(x), function(i) fx1(x[,i]))
+    names(out) <- colnames(x)
+    for (i in seq_len(length(out)))
+        out[[i]]$name <- colnames(x)[i]
+    class(out) <- "slice"
+    out
 }
-plot(dice[[14]])
+
+plot.slice <-
+function(x, name=NULL, ask, ...)
+{
+    vars <- names(x)
+    if (is.null(name))
+        name <- vars
+    name <- if (is.character(name)) {
+        name[match(vars, name)]
+    } else {
+        vars[name]
+    }
+    name <- name[!is.na(name)]
+    vars <- vars[name]
+    np <- length(vars)
+    if (np < 1)
+        stop("must define at least one variable")
+    if (missing(ask))
+        ask <- prod(par("mfcol")) < np && dev.interactive()
+    if (ask) {
+        oask <- devAskNewPage(TRUE)
+        on.exit(devAskNewPage(oask))
+    }
+    for (i in seq_len(np)) {
+        plot(x[[i]], ...)
+    }
+    invisible(x)
+}
+
+x <- slice(dat)
+#plot(x)
+
+dice <-
+function(x, ...)
+{
+    K <- ncol(x)
+    D <- diag(1, K, K)
+    ID <- data.frame(
+        row = row(D)[lower.tri(D)],
+        col = col(D)[lower.tri(D)])
+    fx <- lapply(rownames(ID), function(i) fx2(x[,ID[i,1]], x[,ID[i,2]]))
+    for (i in seq_len(length(fx))) {
+        fx[[i]]$name1 <- colnames(x)[ID[i,1]]
+        fx[[i]]$name2 <- colnames(x)[ID[i,2]]
+    }
+    D[lower.tri(D)] <- sapply(fx, "[[", "cor")
+    D <- t(D)
+    D[lower.tri(D)] <- sapply(fx, "[[", "cor")
+    dimnames(D) <- list(colnames(x), colnames(x))
+    out <- list(
+        id = data.frame(
+            row=factor(colnames(x)[ID$row], colnames(x)),
+            col=factor(colnames(x)[ID$col], colnames(x))),
+        fx=fx,
+        cor=D)
+    class(out) <- "dice"
+    out
+}
+plot.dice <-
+function(x, name1=NULL, name2=NULL, ask, ...)
+{
+    if (is.null(name1) && is.null(name2)) {
+        if (missing(ask))
+            ask <- prod(par("mfcol")) < nrow(x$id) && dev.interactive()
+        if (ask) {
+            oask <- devAskNewPage(TRUE)
+            on.exit(devAskNewPage(oask))
+        }
+        for (i in seq_len(length(x$fx))) {
+            plot(x$fx[[i]], ...)
+        }
+    } else {
+        vars <- colnames(x$cor)
+        ID <- lapply(x$id, as.numeric)
+        if (length(name1) != 1L)
+            stop("name1 must be of length 1")
+        if (length(name2) != 1L)
+            stop("name2 must be of length 1")
+        if (!is.numeric(name1))
+            name1 <- which(vars == as.character(name1))
+        if (!is.numeric(name2))
+            name2 <- which(vars == as.character(name2))
+        if (name1 == name2)
+            stop("use slice, not dice")
+        if (name1 > name2) {
+            plot(x$fx[[which(ID$row == name1 & ID$col == name2)]], ...)
+        } else {
+            plot(flip_fx2(x$fx[[which(ID$row == name2 & ID$col == name1)]]), ...)
+        }
+    }
+    invisible(x)
+}
+
+x <- dice(dat)
+plot(x, 1, 2)
+plot(x, "int1", "nom2")
+plot(x, "nom2", "int1")
+
+h <- hclust(dist(x$cor))
+image(x$cor[h$order, h$order][,K:1])
+
 
 i=1;str(fx2(dat[,ID[i,1]], dat[,ID[i,2]]))
 i=2;str(fx2(dat[,ID[i,1]], dat[,ID[i,2]]))
@@ -513,6 +639,158 @@ i=25;str(fx2(dat[,ID[i,1]], dat[,ID[i,2]])) # !
 i=26;str(fx2(dat[,ID[i,1]], dat[,ID[i,2]])) # !
 i=27;str(fx2(dat[,ID[i,1]], dat[,ID[i,2]])) # !
 i=28;str(fx2(dat[,ID[i,1]], dat[,ID[i,2]]))
+
+
+pairs_fx <-
+function (x, labels, panel = points, ..., horInd = 1:nc, verInd = 1:nc,
+    lower.panel = panel, upper.panel = panel, diag.panel = NULL,
+    text.panel = textPanel, label.pos = 0.5 + has.diag/3, line.main = 3,
+    cex.labels = NULL, font.labels = 1, row1attop = TRUE, gap = 1,
+    log = "")
+{
+    if (doText <- missing(text.panel) || is.function(text.panel))
+        textPanel <- function(x = 0.5, y = 0.5, txt, cex, font) text(x,
+            y, txt, cex = cex, font = font)
+    localAxis <- function(side, x, y, xpd, bg, col = NULL, main,
+        oma, ...) {
+        xpd <- NA
+        if (side%%2L == 1L && xl[j])
+            xpd <- FALSE
+        if (side%%2L == 0L && yl[i])
+            xpd <- FALSE
+        if (side%%2L == 1L)
+            Axis(x, side = side, xpd = xpd, ...)
+        else Axis(y, side = side, xpd = xpd, ...)
+    }
+    localPlot <- function(..., main, oma, font.main, cex.main) plot(...)
+    localLowerPanel <- function(..., main, oma, font.main, cex.main) lower.panel(...)
+    localUpperPanel <- function(..., main, oma, font.main, cex.main) upper.panel(...)
+    localDiagPanel <- function(..., main, oma, font.main, cex.main) diag.panel(...)
+    dots <- list(...)
+    nmdots <- names(dots)
+    if (!is.matrix(x)) {
+        x <- as.data.frame(x)
+        for (i in seq_along(names(x))) {
+            if (is.factor(x[[i]]) || is.logical(x[[i]]))
+                x[[i]] <- as.numeric(x[[i]])
+            if (!is.numeric(unclass(x[[i]])))
+                stop("non-numeric argument to 'pairs'")
+        }
+    }
+    else if (!is.numeric(x))
+        stop("non-numeric argument to 'pairs'")
+    panel <- match.fun(panel)
+    if ((has.lower <- !is.null(lower.panel)) && !missing(lower.panel))
+        lower.panel <- match.fun(lower.panel)
+    if ((has.upper <- !is.null(upper.panel)) && !missing(upper.panel))
+        upper.panel <- match.fun(upper.panel)
+    if ((has.diag <- !is.null(diag.panel)) && !missing(diag.panel))
+        diag.panel <- match.fun(diag.panel)
+    if (row1attop) {
+        tmp <- lower.panel
+        lower.panel <- upper.panel
+        upper.panel <- tmp
+        tmp <- has.lower
+        has.lower <- has.upper
+        has.upper <- tmp
+    }
+    nc <- ncol(x)
+    if (nc < 2L)
+        stop("only one column in the argument to 'pairs'")
+    if (!all(horInd >= 1L && horInd <= nc))
+        stop("invalid argument 'horInd'")
+    if (!all(verInd >= 1L && verInd <= nc))
+        stop("invalid argument 'verInd'")
+    if (doText) {
+        if (missing(labels)) {
+            labels <- colnames(x)
+            if (is.null(labels))
+                labels <- paste("var", 1L:nc)
+        }
+        else if (is.null(labels))
+            doText <- FALSE
+    }
+    oma <- if ("oma" %in% nmdots)
+        dots$oma
+    main <- if ("main" %in% nmdots)
+        dots$main
+    if (is.null(oma))
+        oma <- c(4, 4, if (!is.null(main)) 6 else 4, 4)
+    opar <- par(mfrow = c(length(horInd), length(verInd)), mar = rep.int(gap/2,
+        4), oma = oma)
+    on.exit(par(opar))
+    dev.hold()
+    on.exit(dev.flush(), add = TRUE)
+    xl <- yl <- logical(nc)
+    if (is.numeric(log))
+        xl[log] <- yl[log] <- TRUE
+    else {
+        xl[] <- grepl("x", log)
+        yl[] <- grepl("y", log)
+    }
+    for (i in if (row1attop)
+        verInd
+    else rev(verInd)) for (j in horInd) {
+        l <- paste0(ifelse(xl[j], "x", ""), ifelse(yl[i], "y",
+            ""))
+        localPlot(x[, j], x[, i], xlab = "", ylab = "", axes = FALSE,
+            type = "n", ..., log = l)
+        if (i == j || (i < j && has.lower) || (i > j && has.upper)) {
+            box()
+            if (i == 1 && (!(j%%2L) || !has.upper || !has.lower))
+                localAxis(1L + 2L * row1attop, x[, j], x[, i],
+                  ...)
+            if (i == nc && (j%%2L || !has.upper || !has.lower))
+                localAxis(3L - 2L * row1attop, x[, j], x[, i],
+                  ...)
+            if (j == 1 && (!(i%%2L) || !has.upper || !has.lower))
+                localAxis(2L, x[, j], x[, i], ...)
+            if (j == nc && (i%%2L || !has.upper || !has.lower))
+                localAxis(4L, x[, j], x[, i], ...)
+            mfg <- par("mfg")
+            if (i == j) {
+                if (has.diag)
+                  localDiagPanel(as.vector(x[, i]), ...)
+                if (doText) {
+                  par(usr = c(0, 1, 0, 1))
+                  if (is.null(cex.labels)) {
+                    l.wid <- strwidth(labels, "user")
+                    cex.labels <- max(0.8, min(2, 0.9/max(l.wid)))
+                  }
+                  xlp <- if (xl[i])
+                    10^0.5
+                  else 0.5
+                  ylp <- if (yl[j])
+                    10^label.pos
+                  else label.pos
+                  text.panel(xlp, ylp, labels[i], cex = cex.labels,
+                    font = font.labels)
+                }
+            }
+            else if (i < j)
+                localLowerPanel(as.vector(x[, j]), as.vector(x[,
+                  i]), ...)
+            else localUpperPanel(as.vector(x[, j]), as.vector(x[,
+                i]), ...)
+            if (any(par("mfg") != mfg))
+                stop("the 'panel' function made a new plot")
+        }
+        else par(new = FALSE)
+    }
+    if (!is.null(main)) {
+        font.main <- if ("font.main" %in% nmdots)
+            dots$font.main
+        else par("font.main")
+        cex.main <- if ("cex.main" %in% nmdots)
+            dots$cex.main
+        else par("cex.main")
+        mtext(main, 3, line.main, outer = TRUE, at = 0.5, cex = cex.main,
+            font = font.main)
+    }
+    invisible(NULL)
+}
+
+
 
 ## kernel density estimates
 
