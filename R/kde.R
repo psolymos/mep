@@ -212,76 +212,6 @@ plot(fx1(as.ordered(x2)), col=col)
 plot(fx1(x3), col=col)
 par(op)
 
-}
-
-density2old <-
-function(x1, x2, bw1=NULL, bw2=NULL, m1=51L, m2=51L, ...)
-{
-    type <- c(is.factor(x1), is.factor(x2))
-    if (any(type)) {
-        if (all(type)) {
-            y <- unname(as.matrix(xtabs(~ x1 + x2, sparse = TRUE)))
-            out <- list(
-                x1=factor(levels(x1), levels(x1), ordered=is.ordered(x1)),
-                x2=factor(levels(x2), levels(x2), ordered=is.ordered(x2)),
-                f=y / sum(y),
-                bw1=bw1, bw2=bw2)
-        } else {
-            m <- if (type[1])
-                m2 else m1
-            cont <- if (type[1])
-                x2 else x1
-            disc <- if (type[1])
-                x1 else x2
-            ctype <- if (type[1])
-                get_type(x2) else get_type(x1)
-            br <- if (ctype == "int") {
-                seq(min(cont)-0.5, max(cont)+0.5, by=1)
-            } else {
-                seq(min(cont), max(cont), length.out=m)
-            }
-            i <- cut(cont, br, include.lowest=TRUE)
-            levels(i) <- seq_len(nlevels(i))
-            y <- unname(as.matrix(xtabs(~ i + disc, sparse = TRUE)))
-            y <- y / (sum(y) * diff(br))
-            out <- if (type[1]) {
-                list(
-                    x1=factor(levels(x1), levels(x1), ordered=is.ordered(x1)),
-                    x2=0.5 * (br[-length(br)] + br[-1]),
-                    f=t(y),
-                    bw1=bw1, bw2=bw2)
-            } else {
-                list(
-                    x1=0.5 * (br[-length(br)] + br[-1]),
-                    x2=factor(levels(x2), levels(x2), ordered=is.ordered(x2)),
-                    f=y,
-                    bw1=bw1, bw2=bw2)
-            }
-        }
-    } else {
-        ## need to fix density2: FIXME !!! ???
-        ## cnt-int: integer breaks need to be added
-        #if (get_type(x1) == "int" || get_type(x2) == "int")
-        #    stop("integer break to be implemented")
-        if (get_type(x1) == "int") {
-            m1 <- diff(range(x1)) + 1
-        }
-        bw1 <- if (is.null(bw1))
-            find_bw(x1, ...) else find_bw(x1, bandwidth=bw1, ...)
-        if (get_type(x2) == "int") {
-            m2 <- diff(range(x2)) + 1
-        }
-        bw2 <- if (is.null(bw2))
-            find_bw(x2, ...) else find_bw(x2, bandwidth=bw2, ...)
-        out <- KernSmooth::bkde2D(cbind(x1, x2),
-            bandwidth=c(bw1, bw2), gridsize=c(m1, m2), ...)
-        names(out)[names(out) == "fhat"] <- "f"
-        out$bw1 <- bw1
-        out$bw2 <- bw2
-    }
-    out
-}
-
 x1 <- rnorm(100)
 x2 <- as.factor(sample(LETTERS[1:4], 100, replace=TRUE, prob=4:1))
 x1 <- as.factor(sample(LETTERS[5:10], 100, replace=TRUE))
@@ -289,6 +219,8 @@ str(density2(x1, x1))
 str(density2(x1, x2))
 str(density2(x2, x1))
 str(density2(x2, x2))
+
+}
 
 fx2 <-
 function(x1, x2, bw1=NULL, bw2=NULL, m1=51L, m2=51L, ...)
@@ -396,8 +328,8 @@ function(x1, x2, bw1=NULL, bw2=NULL, m1=51L, m2=51L, ...)
     }
     if (out$type1 == "nom" && out$type2 == "nom")
         out$cor <- cramer_v(out$f * out$n)
+    out$condition <- 0L
     class(out) <- "fx2"
-    #out$z <- z
     out
 }
 
@@ -415,9 +347,13 @@ flip_fx2 <- function(x)
     x$type2 <- tmp$type1
     x$name1 <- tmp$name2
     x$name2 <- tmp$name1
+    if (x$condition > 0)
+        x$condition <- switch(as.character(x$condition),
+            "1" = 2L,
+            "2" = 1L)
     x
 }
-## add option for condition on none (NULL), x1 or x2.
+
 plot.fx2 <-
 function(x, flip=FALSE, col=par("col"), las=1, ...)
 {
@@ -434,7 +370,19 @@ function(x, flip=FALSE, col=par("col"), las=1, ...)
 
     image(as.numeric(x$x1), as.numeric(x$x2), x$f, col=col,
         ann=FALSE, axes=FALSE, xlim=xlim, ylim=ylim, ...)
-    title(xlab=x$name1, ylab=x$name2)
+    if (x$condition > 0) {
+        if (x$condition == 1L) {
+            xlab <- paste("|", x$name1)
+            ylab <- x$name2
+        } else {
+            xlab <- x$name1
+            ylab <- paste("|", x$name2)
+        }
+    } else {
+        xlab <- x$name1
+        ylab <- x$name2
+    }
+    title(xlab=xlab, ylab=ylab)
     if (x$type1 %in% c("cnt", "int")) {
         if (x$type1 == "int" && length(x$x1) <= 5) {
             a1 <- axis(1, x$x1, x$x1, tick=FALSE, las=las)
@@ -468,6 +416,7 @@ function(x, flip=FALSE, col=par("col"), las=1, ...)
     invisible(x)
 }
 
+if (FALSE) {
 z <- fx2(rnorm(100),rnorm(100))
 sum_fx(z)
 z <- fx2(rnorm(100),rpois(100, 2) - 1)
@@ -481,6 +430,78 @@ sum_fx(z)
 z <- fx2(rnorm(100),as.ordered(x2))
 sum_fx(z)
 image(as.numeric(z[[1]]), as.numeric(z[[2]]), z[[3]])
+}
+
+cnd_fx2 <-
+function(x, condition, breaks=4, ...)
+{
+    if (x$condition > 0)
+        stop("already conditioned")
+    if (missing(condition))
+        stop("specifiy condition")
+    if (length(condition) != 1L)
+        stop("specify one condition")
+    if (!is.numeric(condition))
+        condition <- match(as.character(condition),
+            unlist(x[c("name1", "name2")]))
+    if (!(condition %in% 1:2))
+        stop("condition must be in 1:2")
+    if (condition == 1) # only condition on x2
+        x <- flip_fx2(x)
+
+    if (x$type2 == "cnt") {
+        ct <- cut(x$x2, breaks)
+        tb <- as.numeric(table(ct))
+        mm <- model.matrix(~ct-1)
+        fun <- function(v) drop(t(mm) %*% v) / tb
+        #x$x2 <- unname(fun(x$x2))
+        x$x2 <- factor(levels(ct), levels(ct), ordered=TRUE)
+        x$f <- unname(t(apply(x$f, 1, fun)))
+        x$range2 <- range(as.numeric(x$x2))
+        x$type2 <- "ord" # cell size is now irrelevant
+    }
+    for (i in seq_along(x$x2))
+        x$f[,i] <- x$f[,i] / sum(x$f[,i])
+    x$condition <- 2L
+
+    if (condition == 1)
+        flip_fx2(x) else x
+}
+
+## slice 'n' dice ~ snd
+snd <-
+function(x, ...)
+{
+    fx1 <- lapply(colnames(x), function(i) fx1(x[,i]))
+    names(fx1) <- colnames(x)
+    for (i in seq_len(length(fx1)))
+        out[[i]]$name <- colnames(x)[i]
+    K <- ncol(x)
+    D <- diag(1, K, K)
+    ID <- data.frame(
+        row = row(D)[lower.tri(D)],
+        col = col(D)[lower.tri(D)])
+    fx2 <- lapply(rownames(ID), function(i) fx2(x[,ID[i,1]], x[,ID[i,2]]))
+    for (i in seq_len(length(fx2))) {
+        fx2[[i]]$name1 <- colnames(x)[ID[i,1]]
+        fx2[[i]]$name2 <- colnames(x)[ID[i,2]]
+    }
+    D[lower.tri(D)] <- sapply(fx2, "[[", "cor")
+    D <- t(D)
+    D[lower.tri(D)] <- sapply(fx2, "[[", "cor")
+    dimnames(D) <- list(colnames(x), colnames(x))
+    out <- list(
+        fx1=fx1,
+        fx2=fx2,
+        id = data.frame(
+            row=factor(colnames(x)[ID$row], colnames(x)),
+            col=factor(colnames(x)[ID$col], colnames(x))),
+        cor=D)
+    class(out) <- "snd"
+    out
+}
+
+## --- OK so far ---
 
 n <- 100
 dat <- data.frame(
@@ -494,25 +515,26 @@ dat$ord1 <- as.ordered(sample(dat$nom1))
 dat$ord2 <- as.ordered(sample(dat$nom2))
 summary(dat)
 
+x <- fx2(dat$cnt1, dat$cnt2)
+str(x)
+str(cnd_fx2(x, 1))
+str(cnd_fx2(x, 2))
+plot(x)
+plot(cnd_fx2(x, 2))
+plot(cnd_fx2(x, 1))
+
+
 pairs.default(dat)
 pairs.default(dat,
     panel=function(x,y,...) plot(fx2(x,y,...)),
     diag.panel=function(x, ...) plot(fx1(x,...)))
 
-slice <-
-function(x, ...)
-{
-    out <- lapply(colnames(x), function(i) fx1(x[,i]))
-    names(out) <- colnames(x)
-    for (i in seq_len(length(out)))
-        out[[i]]$name <- colnames(x)[i]
-    class(out) <- "slice"
-    out
-}
 
-plot.slice <-
+
+plot_slice <-
 function(x, name=NULL, ask, ...)
 {
+    x <- x$fx1
     vars <- names(x)
     if (is.null(name))
         name <- vars
@@ -541,35 +563,10 @@ function(x, name=NULL, ask, ...)
 x <- slice(dat)
 #plot(x)
 
-dice <-
-function(x, ...)
-{
-    K <- ncol(x)
-    D <- diag(1, K, K)
-    ID <- data.frame(
-        row = row(D)[lower.tri(D)],
-        col = col(D)[lower.tri(D)])
-    fx <- lapply(rownames(ID), function(i) fx2(x[,ID[i,1]], x[,ID[i,2]]))
-    for (i in seq_len(length(fx))) {
-        fx[[i]]$name1 <- colnames(x)[ID[i,1]]
-        fx[[i]]$name2 <- colnames(x)[ID[i,2]]
-    }
-    D[lower.tri(D)] <- sapply(fx, "[[", "cor")
-    D <- t(D)
-    D[lower.tri(D)] <- sapply(fx, "[[", "cor")
-    dimnames(D) <- list(colnames(x), colnames(x))
-    out <- list(
-        id = data.frame(
-            row=factor(colnames(x)[ID$row], colnames(x)),
-            col=factor(colnames(x)[ID$col], colnames(x))),
-        fx=fx,
-        cor=D)
-    class(out) <- "dice"
-    out
-}
-plot.dice <-
+plot_dice <-
 function(x, name1=NULL, name2=NULL, ask, ...)
 {
+        x <- x$fx2
     if (is.null(name1) && is.null(name2)) {
         if (missing(ask))
             ask <- prod(par("mfcol")) < nrow(x$id) && dev.interactive()
@@ -640,8 +637,10 @@ i=26;str(fx2(dat[,ID[i,1]], dat[,ID[i,2]])) # !
 i=27;str(fx2(dat[,ID[i,1]], dat[,ID[i,2]])) # !
 i=28;str(fx2(dat[,ID[i,1]], dat[,ID[i,2]]))
 
-
-pairs_fx <-
+## need to separate plotting region, axes, and title
+## so that the plot() can use those
+## and pairs can utilize as well
+pairs.snd <-
 function (x, labels, panel = points, ..., horInd = 1:nc, verInd = 1:nc,
     lower.panel = panel, upper.panel = panel, diag.panel = NULL,
     text.panel = textPanel, label.pos = 0.5 + has.diag/3, line.main = 3,
