@@ -1,8 +1,41 @@
 ## functions for exploratory data analysis and model checking
 
+wtsx <-
+function(x, y, method=c("gam", "density", "bkde"),
+range=NULL, n=501, ...)
+{
+    if (is.null(range))
+        range <- range(x)
+    method <- match.arg(method)
+    if (method == "gam") {
+        xx <- seq(range[1], range[2], len=n)
+        m <- mgcv::gam(y ~ s(x),
+            family=if (weighted) binomial() else gaussian())
+        sx <- predict(m, newdata=data.frame(x=xx))
+        bw <- NULL
+    }
+    if (method == "density") {
+        bw <- bw.SJ(x[y==0])
+        f0 <- density(x[y==0], bw=bw, n=n, from=range[1], to=range[2], ...)
+        f1 <- density(x[y==1], bw=bw, n=n, from=range[1], to=range[2], ...)
+        f0$y[f0$y == 0] <- .Machine$double.eps
+        sx <- log(f1$y) - log(f0$y)
+        xx <- f0$x
+    }
+    if (method == "bkde") {
+        bw <- find_bw(x[y==0], gridsize=n, range.x=range)
+        f0 <- KernSmooth::bkde(x[y==0], gridsize=n, range.x=range, bandwidth=bw, ...)
+        f1 <- KernSmooth::bkde(x[y==1], gridsize=n, range.x=range, bandwidth=bw, ...)
+        f0$y[f0$y == 0] <- .Machine$double.eps
+        sx <- log(f1$y) - log(f0$y)
+        xx <- f0$x
+    }
+    list(x=xx, s=sx, bw=bw, range=range, n=n, method=method)
+}
+
 sx <-
 function(x, y, weighted=TRUE,
-range=NULL, n=512, ...)
+range=NULL, n=512, se=FALSE, ...)
 {
     type <- get_type(x)
     if (type %in% c("ord", "nom")) {
@@ -14,15 +47,23 @@ range=NULL, n=512, ...)
             sx <- aggregate(data.frame(y=y), list(x=x), mean)$y
         }
         xx <- factor(levels(x), levels(x), ordered=is.ordered(x))
+        sef <- NULL
     } else {
         if (is.null(range))
             range <- range(x)
         m <- mgcv::gam(y ~ s(x),
             family=if (weighted) binomial() else gaussian())
         xx <- seq(range[1], range[2], len=n)
-        sx <- predict(m, newdata=data.frame(x=xx))
+        pr <- predict(m, newdata=data.frame(x=xx), se.fit=se)
+        if (se) {
+            sx <- pr$fit
+            sef <- pr$se.fit
+        } else {
+            sx <- pr
+            sef <- NULL
+        }
     }
-    out <- list(x=xx, s=sx, type=type, weighted=weighted)
+    out <- list(x=xx, s=sx, se=sef, type=type, weighted=weighted)
     class(out) <- "sx"
     out
 }
@@ -30,17 +71,38 @@ range=NULL, n=512, ...)
 n <- 1000
 x <- sort(runif(n, -1, 1))
 s <- -0.5 + sin(x*5) + sin(x*5)^2 + 0.2*x - 0.1*x^2
-y <- rbinom(n, 1, plogis(s))
+#s <- -0.5 -sin(x*5) + sin(x*5)^2 - x + 0.1*x^2
+#s <- -0.5 -2*sin(x*5) - sin(x*5)^2 + 4*x + 0.5*x^2
 table(y)
-plot(y ~ x)
-plot(s ~ x)
-shat <- sx(x, y)
-plot(shat$x, shat$s, type="l")
-lines(s ~ x, col=2)
+plot(x, s, type="l")
+y <- rbinom(n, 1, plogis(s))
+s1 <- wtsx(x, y, "gam")
+s2 <- wtsx(x, y, "density")
+s3 <- wtsx(x, y, "bkde")
+plot(x, scale(s), type="l", ylab="s(x)",
+    ylim=range(scale(s), scale(s1$s), scale(s2$s), scale(s3$s)))
+lines(s1$x, scale(s1$s), col=2)
+lines(s2$x, scale(s2$s), col=3)
+lines(s3$x, scale(s3$s), col=4)
+legend("topright", bty="n", lty=1, col=1:4,
+    legend=c("true", "gam", "density", "bkde"))
 ## see CI: https://stats.stackexchange.com/questions/33327/confidence-interval-for-gam-model
 ## se.fit = TRUE, unconditional = TRUE
 ## upr <- p$fit + (2 * p$se.fit)
 ## lwr <- p$fit - (2 * p$se.fit)
+
+
+library(microbenchmark)
+library(ggplot2)
+
+b <- microbenchmark(
+    gam=wtsx(x, y, "gam"),
+    density=wtsx(x, y, "density"),
+    bkde=wtsx(x, y, "bkde")
+)
+b
+autoplot(b)
+
 
 .get_met <- function(y, x, int=NULL,
 wtd=TRUE, n=512, kernel="gaussian", bw="nrd0",
