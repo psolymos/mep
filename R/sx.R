@@ -10,7 +10,7 @@ range=NULL, n=501, ...)
     if (method == "gam") {
         xx <- seq(range[1], range[2], len=n)
         m <- mgcv::gam(y ~ s(x),
-            family=if (weighted) binomial() else gaussian())
+            family=binomial())
         sx <- predict(m, newdata=data.frame(x=xx))
         bw <- NULL
     }
@@ -35,7 +35,7 @@ range=NULL, n=501, ...)
 
 sx <-
 function(x, y, weighted=TRUE,
-range=NULL, n=512, se=FALSE, ...)
+range=NULL, n=501, se=FALSE, ...)
 {
     type <- get_type(x)
     if (type %in% c("ord", "nom")) {
@@ -73,24 +73,29 @@ x <- sort(runif(n, -1, 1))
 s <- -0.5 + sin(x*5) + sin(x*5)^2 + 0.2*x - 0.1*x^2
 #s <- -0.5 -sin(x*5) + sin(x*5)^2 - x + 0.1*x^2
 #s <- -0.5 -2*sin(x*5) - sin(x*5)^2 + 4*x + 0.5*x^2
-table(y)
 plot(x, s, type="l")
 y <- rbinom(n, 1, plogis(s))
-s1 <- wtsx(x, y, "gam")
+table(y)
+#s1 <- wtsx(x, y, "gam")
+s1 <- sx(x, y, se=TRUE)
 s2 <- wtsx(x, y, "density")
 s3 <- wtsx(x, y, "bkde")
-plot(x, scale(s), type="l", ylab="s(x)",
+plot(x, s, type="l", ylab="s(x)",
     ylim=range(scale(s), scale(s1$s), scale(s2$s), scale(s3$s)))
-lines(s1$x, scale(s1$s), col=2)
-lines(s2$x, scale(s2$s), col=3)
-lines(s3$x, scale(s3$s), col=4)
+level <- 0.95
+q <- abs(qnorm(0.5*(1-level)))
+polygon(c(s1$x, rev(s1$x)),
+    c(s1$s + q * s1$se, rev(s1$s - q * s1$se)), border="grey", col="grey")
+lines(x, s)
+lines(s1$x, s1$s, col=2)
+lines(s2$x, s2$s, col=3)
+lines(s3$x, s3$s, col=4)
 legend("topright", bty="n", lty=1, col=1:4,
     legend=c("true", "gam", "density", "bkde"))
 ## see CI: https://stats.stackexchange.com/questions/33327/confidence-interval-for-gam-model
 ## se.fit = TRUE, unconditional = TRUE
 ## upr <- p$fit + (2 * p$se.fit)
 ## lwr <- p$fit - (2 * p$se.fit)
-
 
 library(microbenchmark)
 library(ggplot2)
@@ -102,6 +107,68 @@ b <- microbenchmark(
 )
 b
 autoplot(b)
+
+recursive_subsets <- function(x, y) {
+    u <- seq_len(max(u)+1L)-1L
+    f <- function(x) {
+        out <- ifelse(y == x[2L], 1, 0)
+        out[!(y %in% x)] <- NA
+        out
+    }
+    ss <- lapply(seq_along(u-1), function(z) f(u[z:(z+1L)]))
+    out <- list()
+    for (i in u[-1L]) {
+        j <- !is.na(ss[[i]])
+        if (sum(j) > 0) {
+            tmp <- try(sx(x=x[j], y=ss[[i]][j],
+                range=range(x), se=TRUE), silent = TRUE)
+            out[[as.character(i)]] <- if (inherits(tmp, "try-error"))
+                 NULL else tmp
+        } else {
+            out[[as.character(i)]] <- NULL
+        }
+    }
+    out
+}
+
+## Poisson model
+n <- 1000
+x <- sort(runif(n, -1, 1))
+s <- exp(-0.5 + sin(x*5) + sin(x*5)^2 + 0.2*x - 0.1*x^2)
+y <- rpois(n, s)
+table(y)
+rs <- recursive_subsets(x, y)
+
+plot(rs[[1]]$s, rs[[2]]$s, type="l")
+lines(rs[[2]]$s, rs[[3]]$s, col=2)
+lines(rs[[3]]$s, rs[[4]]$s, col=3)
+lines(rs[[4]]$s, rs[[5]]$s, col=4)
+lines(rs[[5]]$s, rs[[6]]$s, col=5)
+lines(rs[[6]]$s, rs[[7]]$s, col=6)
+
+plot(rs[[1]]$x, rs[[2]]$s, type="l")
+lines(rs[[2]]$x, rs[[3]]$s, col=2)
+lines(rs[[3]]$x, rs[[4]]$s, col=3)
+lines(rs[[4]]$x, rs[[5]]$s, col=4)
+lines(rs[[5]]$x, rs[[6]]$s, col=5)
+lines(rs[[6]]$x, rs[[7]]$s, col=6)
+
+s1 <- sx(x, y, se=TRUE)
+s2 <- sx(x, y, se=TRUE)
+s2 <- wtsx(x, y, "density")
+s3 <- wtsx(x, y, "bkde")
+plot(x, s, type="l", ylab="s(x)",
+    ylim=range(scale(s), scale(s1$s), scale(s2$s), scale(s3$s)))
+level <- 0.95
+q <- abs(qnorm(0.5*(1-level)))
+polygon(c(s1$x, rev(s1$x)),
+    c(s1$s + q * s1$se, rev(s1$s - q * s1$se)), border="grey", col="grey")
+lines(x, s)
+lines(s1$x, s1$s, col=2)
+lines(s2$x, s2$s, col=3)
+lines(s3$x, s3$s, col=4)
+legend("topright", bty="n", lty=1, col=1:4,
+    legend=c("true", "gam", "density", "bkde"))
 
 
 .get_met <- function(y, x, int=NULL,
