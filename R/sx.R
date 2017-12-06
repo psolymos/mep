@@ -132,21 +132,23 @@ recursive_subsets <- function(x, y) {
 }
 
 ## Poisson model
-n <- 1000
+n <- 10000
 x <- sort(runif(n, -1, 1))
 s <- exp(-0.5 + sin(x*5) + sin(x*5)^2 + 0.2*x - 0.1*x^2)
 y <- rpois(n, s)
+y <- MASS::rnegbin(n, s, theta=0.1)
 table(y)
 rs <- recursive_subsets(x, y)
 
-plot(rs[[1]]$s, rs[[2]]$s, type="l")
+plot(rs[[1]]$s, rs[[2]]$s, type="l", ylim=c(-5,2), xlim=c(-5,2))
+abline(0,1,lty=2)
 lines(rs[[2]]$s, rs[[3]]$s, col=2)
 lines(rs[[3]]$s, rs[[4]]$s, col=3)
 lines(rs[[4]]$s, rs[[5]]$s, col=4)
 lines(rs[[5]]$s, rs[[6]]$s, col=5)
 lines(rs[[6]]$s, rs[[7]]$s, col=6)
 
-plot(rs[[1]]$x, rs[[2]]$s, type="l")
+plot(rs[[1]]$x, rs[[2]]$s, type="l", ylim=c(-1,1))
 lines(rs[[2]]$x, rs[[3]]$s, col=2)
 lines(rs[[3]]$x, rs[[4]]$s, col=3)
 lines(rs[[4]]$x, rs[[5]]$s, col=4)
